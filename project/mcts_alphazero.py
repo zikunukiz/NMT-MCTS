@@ -62,7 +62,7 @@ class TreeNode(object):
         """
         # If it is not root, this node's parent should be updated first.
         if self._parent:
-            self._parent.update_recursive(-leaf_value)
+            self._parent.update_recursive(leaf_value)
         self.update(leaf_value)
 
     def get_value(self, c_puct):
@@ -118,27 +118,17 @@ class MCTS(object):
 
         # Evaluate the leaf using a network which outputs a list of
         # (action, probability) tuples p and also a score v in [-1, 1]
-        # for the current player.
         action_probs, leaf_value = self._policy(state)
         # Check for end of game. ## end of translation
         end, winner = state.game_end()
         if not end:
             node.expand(action_probs)
         else:
-            # # for end state，return the "true" leaf_value
-            # if winner == -1:  # tie
-            #     leaf_value = 0.0
-            # else:
-            #     leaf_value = (
-            #         1.0 if winner == state.get_current_player() else -1.0
-            #     )
-            
-            ## need to be modified for BLEU score (continuous)
+            ## nfor end state，return the "true" leaf_value (BLEU score)
             leaf_value = state.BLEU()
 
-        # Update value and visit count of nodes in this traversal.
-        ## does this make sense, since there is no opponent?
-        node.update_recursive(-leaf_value)
+        # Update value and visit count of nodes in this traversal
+        node.update_recursive(leaf_value)
 
     def get_move_probs(self, state, temp=1e-3):
         """Run all playouts sequentially and return the available actions and
