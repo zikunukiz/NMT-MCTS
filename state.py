@@ -1,13 +1,70 @@
 
 # -*- coding: utf-8 -*-
 """
-@author: Junxiao Song
+@author: Jerry Zikun Chen
 """
 
 from __future__ import print_function
 import numpy as np
 
+class Vocab(object):
+    def __init__(self, **kwargs, vocab):
+        self.available = vocab[:100]
+        self.size = len(self.available)
 
+    def select_next_word(self, move):
+        """
+        3*3 board's moves like:
+        6 7 8
+        3 4 5
+        0 1 2
+        and move 5's location is (1,2)
+        """
+        h = move // self.width
+        w = move % self.width
+        return [h, w]
+
+    def do_move(self, move):
+        self.last_move = move
+
+    def game_end(self):
+        """Check whether the translation is ended or not"""
+        if last_move == '<EOS>':
+            return True
+        else:
+            return False
+
+    def BLEU():
+        return 0
+
+
+class Translate(object):
+    """game server"""
+
+    def __init__(self, vocab, translator, **kwargs):
+        self.vocab = vocab
+        self.translator
+
+    # def graphic(self, board, player1, player2):
+    #     """Draw the board and show game info"""
+
+    def start_translate(self, is_shown=1):
+        """start translation"""
+        if is_shown:
+            self.graphic(self.vocab)
+        while True:
+            move = translator.get_action(self.vocab)
+            self.vocab.do_move(move)
+            if is_shown:
+                self.graphic(self.board)
+            end = self.board.game_end()
+            if end:
+                if is_shown:
+                    print("Translation end. The translation is {}".format())
+                return translation
+
+
+########################################################################################
 class Board(object):
     """board for the game"""
 

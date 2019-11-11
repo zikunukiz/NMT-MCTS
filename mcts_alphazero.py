@@ -2,13 +2,12 @@
 """
 Monte Carlo Tree Search in AlphaGo Zero style, which uses a policy-value
 network to guide the tree search and evaluate the leaf nodes
-@author: Junxiao Song
-https://github.com/junxiaosong/AlphaZero_Gomoku/blob/master/mcts_alphaZero.py
+Code Base: https://github.com/junxiaosong/AlphaZero_Gomoku/blob/master/mcts_alphaZero.py
+@author: Jerry Zikun Chen
 """
 
 import numpy as np
 import copy
-
 
 def softmax(x):
     probs = np.exp(x - np.max(x))
@@ -161,8 +160,8 @@ class MCTS(object):
     def __str__(self):
         return "MCTS"
 
-## Modify for NMT
-class MCTSPlayer(object):
+
+class Translator(object):
     """AI player based on MCTS"""
 
     def __init__(self, policy_value_function,
@@ -170,11 +169,6 @@ class MCTSPlayer(object):
         self.mcts = MCTS(policy_value_function, c_puct, n_playout)
         self._is_selfplay = is_selfplay
 
-    def set_player_ind(self, p):
-        self.player = p
-
-    def reset_player(self):
-        self.mcts.update_with_move(-1)
 
     def get_action(self, vocab, temp=1e-3, return_prob=0):
         available_words = vocab.availables
@@ -199,6 +193,11 @@ class MCTSPlayer(object):
         else:
             print("WARNING: no word left to select")
 
+    # def set_player_ind(self, p):
+    #     self.player = p
+
+    # def reset_player(self):
+    #     self.mcts.update_with_move(-1)
 #     def get_action(self, board, temp=1e-3, return_prob=0):
 #         sensible_moves = board.availables
 #         # the pi vector returned by MCTS as in the alphaGo Zero paper
