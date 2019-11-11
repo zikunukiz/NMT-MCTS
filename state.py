@@ -7,6 +7,8 @@
 from __future__ import print_function
 import numpy as np
 
+EOS_WORD = '</s>'
+
 class Vocab(object):
     def __init__(self, **kwargs, vocab):
         self.available = vocab[:100]
@@ -27,9 +29,9 @@ class Vocab(object):
     def do_move(self, move):
         self.last_move = move
 
-    def game_end(self):
+    def translation_end(self):
         """Check whether the translation is ended or not"""
-        if last_move == '<EOS>':
+        if last_move == EOS_WORD:
             return True
         else:
             return False
@@ -41,15 +43,16 @@ class Vocab(object):
 class Translate(object):
     """game server"""
 
-    def __init__(self, vocab, translator, **kwargs):
+    def __init__(self, vocab, **kwargs):
         self.vocab = vocab
-        self.translator
+        # self.translator = translator
 
     # def graphic(self, board, player1, player2):
     #     """Draw the board and show game info"""
 
-    def start_translate(self, is_shown=1):
+    def start_translate(self, translator, is_shown=1):
         """start translation"""
+        translator = translator
         if is_shown:
             self.graphic(self.vocab)
         while True:
@@ -57,7 +60,7 @@ class Translate(object):
             self.vocab.do_move(move)
             if is_shown:
                 self.graphic(self.board)
-            end = self.board.game_end()
+            end = self.board.translation_end()
             if end:
                 if is_shown:
                     print("Translation end. The translation is {}".format())
