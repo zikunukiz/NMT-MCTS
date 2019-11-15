@@ -6,28 +6,33 @@
 
 from __future__ import print_function
 import numpy as np
+import nltk
 
+global BOS_WORD, EOS_WORD, BLANK_WORD,NUM_WORD
+BOS_WORD = '<s>'
 EOS_WORD = '</s>'
+BLANK_WORD = "<blank>"
+NUM_WORD = '<num>'
 
-class Vocab(object):
+class Translation(object):
     def __init__(self, **kwargs, vocab):
+        
+        # TO DO: top 200 words or sample 200 words from the vocab based on their log probabilities
         self.available = vocab[:100]
         self.size = len(self.available)
+        self.last_move = BOS_WORD
+        self.output = []
 
     def select_next_word(self, move):
-        """
-        3*3 board's moves like:
-        6 7 8
-        3 4 5
-        0 1 2
-        and move 5's location is (1,2)
-        """
         h = move // self.width
         w = move % self.width
         return [h, w]
 
     def do_move(self, move):
+        # TO DO: select new available moves
+
         self.last_move = move
+        self.output.append(move)
 
     def translation_end(self):
         """Check whether the translation is ended or not"""
@@ -36,8 +41,8 @@ class Vocab(object):
         else:
             return False
 
-    def BLEU():
-        return 0
+    def BLEU(references):
+        return nltk.translate.bleu_score.sentence_bleu(references, self.output)        
 
 
 class Translate(object):

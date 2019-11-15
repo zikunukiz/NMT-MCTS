@@ -24,8 +24,8 @@ class TreeNode(object):
     def __init__(self, parent, prior_p):
         self._parent = parent
         self._children = {}  # a map from action to TreeNode
-        self._n_visits = 0
-        self._Q = 0
+        self._n_visits = 0 # number of times this TreeNode has been visited
+        self._Q = 0 # the mean value of the next state
         self._u = 0
         self._P = prior_p
 
@@ -53,8 +53,9 @@ class TreeNode(object):
         """
         # Count visit.
         self._n_visits += 1
+
         # Update Q, a running average of values for all visits.
-        self._Q += 1.0*(leaf_value - self._Q) / self._n_visits
+        self._Q += 1.0*(leaf_value - self._Q) / self._n_visits 
 
     def update_recursive(self, leaf_value):
         """Like a call to update(), but applied recursively for all ancestors.
@@ -87,18 +88,19 @@ class TreeNode(object):
 class MCTS(object):
     """An implementation of Monte Carlo Tree Search."""
 
-    def __init__(self, policy_value_fn, c_puct=5, n_playout=10000):
+    def __init__(self, policy_fn, value_fn, c_puct=5, n_playout=10000):
         """
         policy_value_fn: a function that takes in the state (i.e. input sentence and previous 
             translated words) and outputs a list of (action, probability) tuples and also 
-            a score in [-1, 1] (i.e. the expected value of the end game (BLEU) score from the current
+            a score in [0, 1] (i.e. the expected value of the end game (BLEU) score from the current
             player's perspective) for the current player. # no player for NMT
         c_puct: a number in (0, inf) that controls how quickly exploration
             converges to the maximum-value policy. A higher value means
             relying on the prior more.
         """
         self._root = TreeNode(None, 1.0)
-        self._policy = policy_value_fn
+        self._policy = policy_fn
+        self._value = value_fn
         self._c_puct = c_puct
         self._n_playout = n_playout
 
@@ -115,15 +117,17 @@ class MCTS(object):
             action, node = node.select(self._c_puct)
             state.do_move(action) # assume state has do_move function
 
-        # Evaluate the leaf using a network which outputs a list of
-        # (action, probability) tuples p and also a score v in [-1, 1]
-        action_probs, leaf_value = self._policy(state)
+        # Evaluate the leaf using a policy network which outputs a list of (action, probability) tuples p 
+        # and a value network that gives a score v in [0, 1]
+        action_probs = self._policy(state)
+        leaf_value = self._value(state)
+
         # Check for end of game. ## end of translation
         end, winner = state.game_end()
         if not end:
             node.expand(action_probs)
         else:
-            ## nfor end state，return the "true" leaf_value (BLEU score)
+            ## for end state，return the "true" leaf_value (BLEU score)
             leaf_value = state.BLEU()
 
         # Update value and visit count of nodes in this traversal
