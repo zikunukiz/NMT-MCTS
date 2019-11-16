@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """
 @author: Jerry Zikun Chen
@@ -14,14 +13,18 @@ EOS_WORD = '</s>'
 BLANK_WORD = "<blank>"
 NUM_WORD = '<num>'
 
+# vocab is a list of tokenized strings
 class Translation(object):
     def __init__(self, **kwargs, vocab):
-        
         # TO DO: top 200 words or sample 200 words from the vocab based on their log probabilities
-        self.available = vocab[:100]
+        self.availables = vocab[:100]
         self.size = len(self.available)
         self.last_move = BOS_WORD
         self.output = []
+
+    def init_state(self):
+
+    def current_state(self):
 
     def select_next_word(self, move):
         h = move // self.width
@@ -37,9 +40,10 @@ class Translation(object):
     def translation_end(self):
         """Check whether the translation is ended or not"""
         if last_move == EOS_WORD:
-            return True
+            bleu = nltk.translate.bleu_score.sentence_bleu(references, self.output)        
+            return True, bleu
         else:
-            return False
+            return False, 0
 
     def BLEU(references):
         return nltk.translate.bleu_score.sentence_bleu(references, self.output)        
@@ -48,8 +52,8 @@ class Translation(object):
 class Translate(object):
     """game server"""
 
-    def __init__(self, vocab, **kwargs):
-        self.vocab = vocab
+    def __init__(self, str, **kwargs):
+        self.translation = translation
         # self.translator = translator
 
     # def graphic(self, board, player1, player2):
@@ -64,13 +68,48 @@ class Translate(object):
             move = translator.get_action(self.vocab)
             self.vocab.do_move(move)
             if is_shown:
-                self.graphic(self.board)
-            end = self.board.translation_end()
+                self.graphic(self.translation)
+            end = self.translation.translation_end()
             if end:
                 if is_shown:
                     print("Translation end. The translation is {}".format())
                 return translation
 
+    def start_train_translate(self, translator, is_shown=0, temp=1e-3): 
+        """ start a self-play game using a MCTS player, reuse the search tree,
+        and store the self-play data: (state, mcts_probs, z) for training
+        """
+        self.translation.init_board()
+        # p1, p2 = self.board.players
+        states, mcts_probs = [], []
+        while True:
+            move, move_probs = player.get_action(self.board,
+                                                 temp=temp,
+                                                 return_prob=1)
+            # store the data
+            states.append(self.translation.current_state())
+            mcts_probs.append(move_probs)
+            # current_players.append(self.board.current_player)
+            # perform a move
+            self.translation.do_move(move)
+            if is_shown:
+                self.graphic(self.translation, p1, p2)
+            end, winner = self.translation.game_end()
+            if end:
+                # calculate bleu
+                # winner from the perspective of the current player of each state
+                winners_z = np.zeros(len(current_players))
+                if winner != -1:
+                    winners_z[np.array(current_players) == winner] = 1.0
+                    winners_z[np.array(current_players) != winner] = -1.0
+                # reset MCTS root node
+                player.reset_player()
+                if is_shown:
+                    if winner != -1:
+                        print("Game end. Winner is player:", winner)
+                    else:
+                        print("Game end. Tie")
+                return winner, zip(states, mcts_probs, winners_z) 
 
 ########################################################################################
 class Board(object):
@@ -287,3 +326,5 @@ class Game(object):
                     else:
                         print("Game end. Tie")
                 return winner, zip(states, mcts_probs, winners_z)
+
+
