@@ -123,12 +123,12 @@ class MCTS(object):
         leaf_value = self._value(state)
 
         # Check for end of game. ## end of translation
-        end, winner = state.game_end()
+        end, bleu = state.translation_end()
         if not end:
             node.expand(action_probs)
         else:
             ## for end state，return the "true" leaf_value (BLEU score)
-            leaf_value = state.BLEU()
+            leaf_value = bleu
 
         # Update value and visit count of nodes in this traversal
         node.update_recursive(leaf_value)

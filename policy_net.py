@@ -38,7 +38,7 @@ class PositionalEncoding(nn.Module):
 
 class TransformerModel(nn.Module):
     def __init__(self, d_model, nhead, num_encoder_layers, num_decoder_layers,
-                dim_feedforward, dropout,activation, src_vocab_size, tgt_vocab_size):
+                dim_feedforward, dropout, activation, src_vocab_size, tgt_vocab_size):
         super(TransformerModel,self).__init__()
         self.pos_encoder = PositionalEncoding(d_model=d_model,dropout=0.1) #, max_len=100)
         encoder_layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, activation)
@@ -84,7 +84,7 @@ class TransformerModel(nn.Module):
         if memory is None:
           memory = self.encoder_embedding(src).double() * math.sqrt(self.d_model)
           memory = self.pos_encoder(memory).double()
-          memory = self.encoder(memory,src_key_padding_mask=src_key_padding_mask)
+          memory = self.encoder(memory, src_key_padding_mask=src_key_padding_mask)
         
         tgt2 = self.decoder_embedding(tgt).double() * math.sqrt(self.d_model)
         tgt2 = self.pos_encoder(tgt2)
@@ -113,7 +113,7 @@ class MainParams:
 
 class PolicyNet():
     """policy-value network """
-    def __init__(self, main_params, model_file=None):
+    def __init__(self, main_params, path_to_policy=None):
         self.use_gpu = True if main_params.device == 'cuda:0' else False
         self.l2_const = 1e-4  # coef of l2 penalty
         
@@ -125,8 +125,15 @@ class PolicyNet():
         self.optimizer = optim.Adam(self.policy_net.parameters(), weight_decay=self.l2_const)
 
         if model_file:
-            net_params = torch.load(model_file)
-            self.policy_value_net.load_state_dict(net_params)
+            net_params = torch.load(path_to_policy)
+            self.policy_net.load_state_dict(net_params)
+
+    def get_log_act_prob(src_tensor, dec_input, src_key_padding_mask, src_key_padding_mask, encoder_output):
+        output, _ = self.policy.forward(src_tensor, dec_input, src_key_padding_mask=src_key_padding_mask, 
+                                                    tgt_mask=None, tgt_key_padding_mask=None, 
+                                                    memory_key_padding_mask=src_key_padding_mask, memory=encoder_output)
+        log_act_probs = F.log_softmax(output[-1,:,:], dim=1)
+        return log_act_probs
 
     def policy_value(self, state_batch):
         """
@@ -144,12 +151,13 @@ class PolicyNet():
             act_probs = np.exp(log_act_probs.data.numpy())
             return act_probs
 
-    def policy_fn(self, translation):
+    def policy_fn(self, translation): 
         """
         input: translation
         output: a list of (action, probability) tuples for each available
         action and the score of the translation state
         """
+        # TO DO
         legal_positions = translation.availables
         current_state = np.ascontiguousarray(translation.current_state().reshape(
                 -1, 4, self.board_width, self.board_height))
@@ -163,8 +171,7 @@ class PolicyNet():
         #             Variable(torch.from_numpy(current_state)).float())
         #     act_probs = np.exp(log_act_probs.data.numpy().flatten())
         act_probs = zip(legal_positions, act_probs[legal_positions])
-        value = value.data[0][0]
-        return act_probs, value
+        return act_probs
 
     def train_step(self, state_batch, mcts_probs, winner_batch, lr):
         """perform a training step"""
@@ -184,25 +191,23 @@ class PolicyNet():
         set_learning_rate(self.optimizer, lr)
 
         # forward
-        log_act_probs, value = self.policy_value_net(state_batch)
+        log_act_probs = self.policy_net(state_batch)
         # define the loss = (z - v)^2 - pi^T * log(p) + c||theta||^2
         # Note: the L2 penalty is incorporated in optimizer
-        value_loss = F.mse_loss(value.view(-1), winner_batch)
         policy_loss = -torch.mean(torch.sum(mcts_probs*log_act_probs, 1))
-        loss = value_loss + policy_loss
         # backward and optimize
-        loss.backward()
+        policy_loss.backward()
         self.optimizer.step()
         # calc policy entropy, for monitoring only
         entropy = -torch.mean(
                 torch.sum(torch.exp(log_act_probs) * log_act_probs, 1)
                 )
-        return loss.data[0], entropy.data[0]
+        return policy_loss.data[0], entropy.data[0]
         #for pytorch version >= 0.5 please use the following line instead.
         #return loss.item(), entropy.item()
 
     def get_policy_param(self):
-        net_params = self.policy_value_net.state_dict()
+        net_params = self.policy_net.state_dict()
         return net_params
 
     def save_model(self, model_file):
