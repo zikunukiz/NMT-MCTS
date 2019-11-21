@@ -5,14 +5,9 @@
 
 from __future__ import print_function
 import pickle
-from state import Vocab, Translate
-# from mcts_pure import MCTSPlayer as MCTS_Pure
-from mcts_alphazero import MCTSTranslator
-# from policy_value_net_numpy import PolicyValueNetNumpy
-# from policy_value_net import PolicyValueNet  # Theano and Lasagne
-from policy_value_net_pytorch import PolicyValueNet  # Pytorch
-# from policy_value_net_tensorflow import PolicyValueNet # Tensorflow
-# from policy_value_net_keras import PolicyValueNet  # Keras
+from state import Translate, Translator
+from mcts_translator import MCTSTranslator
+from policy_value_net_pytorch import PolicyValueNet
 
 def run():
     model_file = 'best_policy_8_8_5.model'
@@ -41,8 +36,6 @@ def run():
     except KeyboardInterrupt:
         print('\n\rquit')
 
-if __name__ == '__main__':
-    run()
 
 ########################################################################################
 from __future__ import print_function
@@ -104,9 +97,9 @@ class TrainPipeline():
         """run the training pipeline"""
         try:
             for i in range(self.game_batch_num):
-                # self.collect_selfplay_data(self.play_batch_size)
-                # print("batch i:{}, episode_len:{}".format(
-                #         i+1, self.episode_len))
+                self.collect_selfplay_data(self.play_batch_size)
+                print("batch i:{}, episode_len:{}".format(
+                        i+1, self.episode_len))
                 if len(self.data_buffer) > self.batch_size:
                     policy_loss, entropy = self.policy_update()
                 # check the performance of the current model,
@@ -126,6 +119,18 @@ class TrainPipeline():
                 #             self.best_win_ratio = 0.0
         except KeyboardInterrupt:
             print('\n\rquit')
+
+
+    def collect_selfplay_data(self, n_games=1): # collect_train_translation_data
+        """collect self-play data for training"""
+        for i in range(n_games):
+            winner, play_data = self.game.start_self_play(self.mcts_player,
+                                                          temp=self.temp) # start_train_translate
+            play_data = list(play_data)[:]
+            self.episode_len = len(play_data)
+            # augment the data
+            play_data = self.get_equi_data(play_data)
+            self.data_buffer.extend(play_data)
 
     def policy_update(self):
         """update the policy-value net"""
@@ -222,6 +227,7 @@ class TrainPipeline():
 
 
 if __name__ == '__main__':
-    training_pipeline = TrainPipeline()
-    training_pipeline.run()
+    # training_pipeline = TrainPipeline()
+    # training_pipeline.run()
+
 

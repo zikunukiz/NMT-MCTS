@@ -123,17 +123,17 @@ class MCTS(object):
         leaf_value = self._value(state)
 
         # Check for end of game. ## end of translation
-        end, winner = state.game_end()
+        end, bleu = state.translation_end()
         if not end:
             node.expand(action_probs)
         else:
             ## for end state，return the "true" leaf_value (BLEU score)
-            leaf_value = state.BLEU()
+            leaf_value = bleu
 
         # Update value and visit count of nodes in this traversal
         node.update_recursive(leaf_value)
 
-    def get_move_probs(self, state, temp=1e-3): # change move to word
+    def get_move_probs(self, state, temp=1e-3):
         """Run all playouts sequentially and return the available actions and
         their corresponding probabilities.
         state: the current state (input and its translation so far)
@@ -166,19 +166,18 @@ class MCTS(object):
 
 
 class MCTSTranslator(object):
-    """AI player based on MCTS"""
+    """AI translator based on MCTS"""
 
-    def __init__(self, policy_value_function,
+    def __init__(self, policy_fn, value_fn,
                  c_puct=5, n_playout=2000, is_selfplay=0):
-        self.mcts = MCTS(policy_value_function, c_puct, n_playout)
-        self._is_selfplay = is_selfplay
+        self.mcts = MCTS(policy_fn, value_fn, c_puct, n_playout)
 
-    def get_action(self, vocab, temp=1e-3, return_prob=0):
-        available_words = vocab.availables
+    def get_action(self, translation, temp=1e-3, return_prob=0):
+        available_words = translation.availables
         # the pi vector returned by MCTS as in the alphaGo Zero paper
-        move_probs = np.zeros(vocab.size)
+        move_probs = np.zeros(translation.size)
         if len(available_words) > 0:
-            acts, probs = self.mcts.get_move_probs(vocab, temp)
+            acts, probs = self.mcts.get_move_probs(translation, temp)
             move_probs[list(acts)] = probs
 
             # with the default temp=1e-3, it is almost equivalent
@@ -186,7 +185,7 @@ class MCTSTranslator(object):
             move = np.random.choice(acts, p=probs)
             # reset the root node
             self.mcts.update_with_move(-1)
-            word = vocab.select_next_word(move)
+            word = translation.select_next_word(move)
             print("system chose: %d\n" % (word))
 
             if return_prob:
@@ -196,40 +195,6 @@ class MCTSTranslator(object):
         else:
             print("WARNING: no word left to select")
 
-    # def set_player_ind(self, p):
-    #     self.player = p
-
-    # def reset_player(self):
-    #     self.mcts.update_with_move(-1)
-#     def get_action(self, board, temp=1e-3, return_prob=0):
-#         sensible_moves = board.availables
-#         # the pi vector returned by MCTS as in the alphaGo Zero paper
-#         move_probs = np.zeros(board.width*board.height)
-#         if len(sensible_moves) > 0:
-#             acts, probs = self.mcts.get_move_probs(board, temp)
-#             move_probs[list(acts)] = probs
-#             if self._is_selfplay:
-#                 # add Dirichlet Noise for exploration (needed for
-#                 # self-play training)
-#                 move = np.random.choice(
-#                     acts,
-#                     p=0.75*probs + 0.25*np.random.dirichlet(0.3*np.ones(len(probs)))
-#                 )
-#                 # update the root node and reuse the search tree
-#                 self.mcts.update_with_move(move)
-#             else:
-#                 # with the default temp=1e-3, it is almost equivalent
-#                 # to choosing the move with the highest prob
-#                 move = np.random.choice(acts, p=probs)
-#                 # reset the root node
-#                 self.mcts.update_with_move(-1)
-# #                location = board.move_to_location(move)
-# #                print("AI move: %d,%d\n" % (location[0], location[1]))
-
-#             if return_prob:
-#                 return move, move_probs
-#             else:
-#                 return move
 
     def __str__(self):
         return "MCTS {}".format(self.player)
