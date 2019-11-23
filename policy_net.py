@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-An implementation of the policyValueNet in PyTorch
-Tested in PyTorch 0.2.0 and 0.3.0
-@author: Junxiao Song
+@author: Jerry Zikun Chen
 """
 
 import torch
@@ -149,7 +147,7 @@ class PolicyNet():
             state_batch = Variable(torch.FloatTensor(state_batch))
             log_act_probs = self.policy_net(state_batch)
             act_probs = np.exp(log_act_probs.data.numpy())
-            return act_probs
+            return act_probs 
 
     def policy_fn(self, translation): 
         """

@@ -110,6 +110,7 @@ class MCTS(object):
         State is modified in-place, so a copy must be provided.
         """
         node = self._root
+        action_probs = self._policy(state)
         while(1):
             if node.is_leaf():
                 break
@@ -119,7 +120,7 @@ class MCTS(object):
 
         # Evaluate the leaf using a policy network which outputs a list of (action, probability) tuples p 
         # and a value network that gives a score v in [0, 1]
-        action_probs = self._policy(state)
+        # action_probs = self._policy(state)
         leaf_value = self._value(state)
 
         # Check for end of game. ## end of translation

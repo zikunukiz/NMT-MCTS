@@ -11,8 +11,8 @@ from policy_value_net_pytorch import PolicyValueNet
 
 def run():
     model_file = 'best_policy_8_8_5.model'
-    try:
-        translate = Translate()
+    
+        translate = Translate(translation)
 
         # load the trained policy_value_net in either Theano/Lasagne, PyTorch or TensorFlow
 
@@ -25,30 +25,19 @@ def run():
         except:
             policy_param = pickle.load(open(model_file, 'rb'),
                                        encoding='bytes')  # To support python3
-        best_policy = PolicyValueNet(vocab_size, policy_param)
-        
-        mcts_translator = MCTSTranslator(best_policy.policy_value_fn,
-                                 c_puct=5,
-                                 n_playout=400)  # set larger n_playout for better performance
 
-        # set start_player=0 for human first
-        translate.start_translate(mcts_translator, is_shown=1)
-    except KeyboardInterrupt:
-        print('\n\rquit')
+        try:
+		    best_policy = PolicyValueNet(vocab_size, policy_param)
+		    translate = Translate(translation, vocab, best_policy)
+		    mcts_translator = MCTSTranslator(best_policy.policy_value_fn,
+		                             c_puct=5,
+		                             n_playout=400)  # set larger n_playout for better performance
 
+		    # set start_player=0 for human first
+        	translate.start_translate(mcts_translator, is_shown=1)
+    	except KeyboardInterrupt:
+        	print('\n\rquit')
 
-########################################################################################
-from __future__ import print_function
-import random
-import numpy as np
-from collections import defaultdict, deque
-from game import Board, Game
-from mcts_pure import MCTSPlayer as MCTS_Pure
-from mcts_alphaZero import MCTSPlayer
-from policy_value_net import PolicyValueNet  # Theano and Lasagne
-# from policy_value_net_pytorch import PolicyValueNet  # Pytorch
-# from policy_value_net_tensorflow import PolicyValueNet # Tensorflow
-# from policy_value_net_keras import PolicyValueNet # Keras
 
 
 class TrainPipeline():

@@ -5,7 +5,7 @@
 
 from __future__ import print_function
 import numpy as np
-from nltk.translate.bleu_score import sentence_bleu
+import sacrebleu
 
 global BOS_WORD, EOS_WORD, BLANK_WORD,NUM_WORD
 BOS_WORD = '<s>'
@@ -16,15 +16,20 @@ NUM_WORD = '<num>'
 # vocab is a list of tokenized strings
 # vocab = TGT.vocab.itos
 class Translation(object):
-    def __init__(self, **kwargs, vocab):
-        self.size = len(vocab) # 200 is the default value
+    def __init__(self, n_avlb, vocab, policy_fn, **kwargs,):
+         # 200 is the default value
+        self.size = n_avlb
         self.output = []
+        self.policy_net = policy_fn
 
     def init_state(self):
-        # TO DO: top 200 words or sample 200 words from the vocab based on their log probabilities
-        self.availables = list(range(self.size))
-        self.states = {}
-        self.last_move = BOS_WORD
+        # TO DO: policy_value input should be the current decoding state
+        # pick highest 200 probability words
+        # word_probs numpy array
+        word_probs = self.policy_net.policy_value()
+        top_ids = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
+        self.availables = vocab[top_ids]
+        self.last_word_id = BOS_WORD
 
     def current_state(self): 
     # TO DO
@@ -33,21 +38,26 @@ class Translation(object):
 
         return square_state[:, ::-1, :]
 
-    def select_next_word(self, move):
+    def select_next_word(self, word_id):
         h = move // self.width
         w = move % self.width
         return [h, w]
 
-    def do_move(self, move):
+    def do_move(self, word_id): # can change name to choose_word
+        # word_id is the index in the vocab
         # TO DO: select new available moves
-
-        self.last_move = move
-        self.output.append(move)
+        # TO DO: normalize other probabilities
+        # add word as new input 
+        word_probs = self.policy_net.policy_value()
+        top_ind = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
+        self.availables = vocab[top_ind]
+        self.last_word_id = word_id
+        self.output.append(word_id)
 
     def translation_end(self, tgt_tensor):
         """Check whether the translation is ended or not"""
-        if last_move == EOS_WORD:
-            bleu = sentence_bleu(reference, self.output)     
+        if vocab[last_word_id] == EOS_WORD:
+            bleu = sacrebleu.sentence_bleu(reference, self.output, smooth_method='exp')     
             return True, bleu
         else:
             return False, -1
@@ -55,25 +65,24 @@ class Translation(object):
     def get_bleu_scores(trg_tensor, pred_tensor, vocab):
         bleus_per_sentence = torch.zeros(trg_tensor.shape[1],requires_grad=False) 
         for col in range(trg_tensor.shape[1]): #each column contains sentence
-        true_sentence = [vocab[i] for i in trg_tensor[:,col] if vocab[i] != BLANK_WORD][1:-1]
-        pred_sentence = [vocab[i] for i in pred_tensor[:,col] if vocab[i] != BLANK_WORD]
-        #now also need to stop pred_sentence after first EOS_WORD outputted
-        #also don't want to use BOS chars
-        ind_first_eos = 0
-        for tok in pred_sentence:
-          if tok == EOS_WORD:
-            break
-          ind_first_eos += 1
-        if ind_first_eos != 0:
-          pred_sentence = pred_sentence[1:ind_first_eos] #this gets rid of EOS_WORD
-        #now undo some of the weird tokenization
-        pred_sentence = fix_sentence(pred_sentence)
-        true_sentence = fix_sentence(true_sentence)
-        #This bleu_score defaults to calculating BLEU-4 (not normal bleu) so change weights,
-        #this change of weights gives BLEU based on 1-grams so normal bleu I believe
-        score = nltk.translate.bleu_score.sentence_bleu([true_sentence], pred_sentence, weights=(1, 0, 0, 0))
-        score = score*len(true_sentence)
-        bleus_per_sentence[col] = score
+	        true_sentence = [vocab[i] for i in trg_tensor[:,col] if vocab[i] != BLANK_WORD][1:-1]
+	        pred_sentence = [vocab[i] for i in pred_tensor[:,col] if vocab[i] != BLANK_WORD]
+	        #now also need to stop pred_sentence after first EOS_WORD outputted
+	        #also don't want to use BOS chars
+	        ind_first_eos = 0
+	        for tok in pred_sentence:
+	          if tok == EOS_WORD:
+	            break
+	          ind_first_eos += 1
+	        if ind_first_eos != 0:
+	          pred_sentence = pred_sentence[1:ind_first_eos] #this gets rid of EOS_WORD
+	        #now undo some of the weird tokenization
+	        pred_sentence = fix_sentence(pred_sentence)
+	        true_sentence = fix_sentence(true_sentence)
+	        
+	        # sacrebleu to account for sentence length
+	        score = sacrebleu.sentence_bleu(pred_sentence, true_sentence, smooth_method='exp').score
+	        bleus_per_sentence[col] = score/100.0
         return bleus_per_sentence
 
     def fix_sentence(sentence):
@@ -110,8 +119,8 @@ class Translate(object):
         if is_shown:
             self.graphic(self.vocab)
         while True:
-            move = translator.get_action(self.vocab)
-            self.vocab.do_move(move)
+            word_id = translator.get_action(self.vocab)
+            self.vocab.do_move(word_id)
             if is_shown:
                 self.graphic(self.translation)
             end = self.translation.translation_end()
@@ -127,14 +136,14 @@ class Translate(object):
         self.translation.init_state()
         states, mcts_probs, bleus_z = [], [], []
         while True:
-            move, move_probs = translator.get_action(self.board,
+            word_id, word_probs = translator.get_action(self.board,
                                                  temp=temp,
                                                  return_prob=1)
             # store the data
             states.append(self.translation.current_state())
-            mcts_probs.append(move_probs)
-            # perform a move
-            self.translation.do_move(move)
+            mcts_probs.append(word_probs)
+            # choose a word (perform a move)
+            self.translation.do_move(word_id)
             end, bleu = self.translation.translation_end()
             if end:
                 bleus_z.append(bleu)
