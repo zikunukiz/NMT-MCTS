@@ -179,19 +179,18 @@ class PolicyValueNet():
         output: a list of (action, probability) tuples for each available
         action and the score of the translation state
         """
-        # TO DO
         legal_positions = translation.availables
         src, output = translation.current_state()
 
         if self.use_gpu:
         	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1)).to(self.device))        	
         	output_tensor = Variable(torch.from_numpy(np.array(output).reshape(-1, 1)).to(self.device))
-			act_probs, value = policy_value(src_tensor, output_tensor)                
+			act_probs, value = policy_value(src_tensor, output_tensor, None)                
 
         else:
         	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1)))
-        	output_tensor = Variable(torch.from_numpy(np.array(output).reshape(-1, 1))
-			act_probs, value = policy_value(src_tensor, output_tensor)   
+        	output_tensor = Variable(torch.from_numpy(np.array(output).reshape(-1, 1)))
+			act_probs, value = policy_value(src_tensor, output_tensor, None)   
         
         act_probs = zip(legal_positions, act_probs[legal_positions])
 
