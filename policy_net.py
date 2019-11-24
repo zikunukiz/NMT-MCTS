@@ -108,51 +108,72 @@ class MainParams:
         self.num_decode_steps = 60 
 
 
-class PolicyNet():
+class PolicyValueNet():
     """policy-value network """
-    def __init__(self, main_params, path_to_policy=None):
+    def __init__(self, main_params, path_to_policy=None, path_to_value=None):
         self.use_gpu = True if main_params.device == 'cuda:0' else False
         self.l2_const = 1e-4  # coef of l2 penalty
         self.device = main_params.device
         
-        # the policy value net module
+        # the policy net
         if self.use_gpu:
-            self.policy_net = TransformerModel(**(main_params.model_params)).to(main_params.device)
+            self.policy_net = TransformerModel(**(main_params.model_params)).to(main_params.device).double()
         else:
             self.policy_net = TransformerModel(**(main_params.model_params))
+        
+        # the value net
+        value_net = TransformerModel(**(main_params.model_params))
+        value_net.change_to_value_net()
+        if self.use_gpu:
+        	self.value_net = value_net.to(main_params.device).double()
+        else:
+        	self.value_net = value_net
+        # value_net.decoder_embedding.weight = nn.Parameter(policy_net.decoder_embedding.weight.clone())
+        self.value_net = value_net
+
+        # load parameters if available
+		if model_file:
+            policy_params = torch.load(path_to_policy)
+            self.policy_net.load_state_dict(policy_params)
+
+            value_params = torch.load(path_to_value)
+            self.value_net.load_state_dict(value_params)
+
+        # optimizer
         self.optimizer = optim.Adam(self.policy_net.parameters(), weight_decay=self.l2_const)
 
-        if model_file:
-            net_params = torch.load(path_to_policy)
-            self.policy_net.load_state_dict(net_params)
-
-    def get_log_act_prob(src_tensor, dec_input, encoder_output):
-        # dec_input = src_tensor[0,:].view(1,-1)
+    def policy_value(src_tensor, dec_input, encoder_output):
+    	"""
+    	input: batch of states (tensor)
+    		src_tensor: batch of source sentences 
+    		dec_input: translated outputs so far
+    	output: batch of action probabilities and state values (numpy)
+			act_probs: batch size x vocab size 6565
+			value: batch_size x 1
+    	"""
     	src_key_padding_mask = (src_tensor==dataset_dict['src_padding_ind']).transpose(0,1)
-        output, _ = self.policy.forward(src_tensor, dec_input, src_key_padding_mask=src_key_padding_mask, 
-                                                    tgt_mask=None, tgt_key_padding_mask=None, 
-                                                    memory_key_padding_mask=src_key_padding_mask, 
-                                                    memory=encoder_output)
-        log_act_probs = F.log_softmax(output[-1,:,:], dim=1)
-        return log_act_probs
+        policy_output, encouder_output = self.policy_net.forward(src_tensor, dec_input, 
+        									src_key_padding_mask=src_key_padding_mask, 
+                                            tgt_mask=None, tgt_key_padding_mask=None, 
+                                            memory_key_padding_mask=src_key_padding_mask, 
+                                            memory=encoder_output)
+        log_act_probs = F.log_softmax(policy_output[-1,:,:], dim=1)
+        act_probs = torch.exp(log_act_probs)
+        act_probs = np.array(act_probs.tolist())
+        
+        self.value_net.decoder_embedding.weight = nn.Parameter(policy_net.decoder_embedding.weight.clone())
+		value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
+											src_key_padding_mask=src_key_padding_mask,
+                            				tgt_mask=None,tgt_key_padding_mask=None,
+                            				memory_key_padding_mask=src_key_padding_mask,
+                            				memory=encoder_output)
+		# convert to numpy array
+		value_output = np.array(value_output.view(1,-1).tolist()[0])
+		# value = nn.Sigmoid(value_output[inds_to_use.long(), batch_indices, 0])
+        return act_probs, value_output
 
-    def policy_value(self, state_batch): # TO DO
-        """
-        input: a batch of states
-        output: a batch of action probabilities and state values
-        """
-        if self.use_gpu:
-            state_batch = Variable(torch.FloatTensor(state_batch).cuda())
-            log_act_probs = self.policy_net(state_batch)
-            act_probs = np.exp(log_act_probs.data.cpu().numpy())
-            return act_probs
-        else:
-            state_batch = Variable(torch.FloatTensor(state_batch))
-            log_act_probs = self.policy_net(state_batch)
-            act_probs = np.exp(log_act_probs.data.numpy())
-            return act_probs
 
-    def policy_fn(self, translation): 
+    def policy_value_fn(self, translation): 
         """
         input: translation
         output: a list of (action, probability) tuples for each available
@@ -161,18 +182,20 @@ class PolicyNet():
         # TO DO
         legal_positions = translation.availables
         src, output = translation.current_state()
+
         if self.use_gpu:
-			log_act_probs = self.policy_net(
-                Variable(torch.from_numpy(np.array(src).reshape(-1, 1)).to(self.device)),
-                Variable(torch.from_numpy(np.array(output).reshape(-1, 1)).to(self.device))
-            act_probs = np.exp(log_act_probs.data.cpu().numpy().flatten())
+        	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1)).to(self.device))        	
+        	output_tensor = Variable(torch.from_numpy(np.array(output).reshape(-1, 1)).to(self.device))
+			act_probs, value = policy_value(src_tensor, output_tensor)                
+
         else:
-        	log_act_probs = self.policy_net(
-               	Variable(torch.from_numpy(np.array(src).reshape(-1, 1)).to(self.device)),
-                Variable(torch.from_numpy(np.array(output).reshape(-1, 1)).to(self.device))
-            act_probs = np.exp(log_act_probs.data.cpu().numpy().flatten())
+        	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1)))
+        	output_tensor = Variable(torch.from_numpy(np.array(output).reshape(-1, 1))
+			act_probs, value = policy_value(src_tensor, output_tensor)   
+        
         act_probs = zip(legal_positions, act_probs[legal_positions])
-        return act_probs
+
+        return act_probs, value
 
     def train_step(self, state_batch, mcts_probs, winner_batch, lr):
         """perform a training step"""
