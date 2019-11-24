@@ -4,13 +4,13 @@
 """
 
 from __future__ import print_function
-import pickle
 from state import Translate, Translator
 from mcts_translator import MCTSTranslator
-from policy_value_net_pytorch import PolicyValueNet
+from policy_net import PolicyNet
+from load_data import createIterators
 
-def run(): # from human_play.py
-    model_file = 'best_policy_8_8_5.model'
+def run(file_path, vocab): # from human_play.py
+    model_file = file_path
     try:
         policy_param = pickle.load(open(model_file, 'rb'))
     except:
@@ -19,7 +19,7 @@ def run(): # from human_play.py
 
     try:
 	    best_policy = PolicyValueNet(vocab_size, policy_param)
-	    vocab = TGT.vocab.itos
+	    vocab = vocab
 	    translation = Translation(n_avlb, vocab, best_policy)
 	    translate = Translate(translation)
 	    mcts_translator = MCTSTranslator(best_policy.policy_value_fn,
@@ -212,5 +212,16 @@ class TrainPipeline():
 if __name__ == '__main__':
     # training_pipeline = TrainPipeline()
     # training_pipeline.run()
+
+    # create iterator to loop over batch data
+    batch_size = 1
+    working_path = ''
+    dataset_dict = createIterators(batch_size, working_path + 'iwsltTokenizedData/')
+    
+    # English vocabulary
+    eng_vocab = datasetDict['TGT'].vocab.itos
+
+    # load model and initialize translaion
+    run(working_path + 'savedModels/policy_supervised_RLTrained.pt', eng_vocab)
 
 

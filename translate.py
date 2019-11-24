@@ -7,12 +7,10 @@ from __future__ import print_function
 import numpy as np
 import sacrebleu
 
-global BOS_WORD, EOS_WORD, BLANK_WORD,NUM_WORD
+global BOS_WORD, EOS_WORD, BLANK_WORD
 BOS_WORD = '<s>'
 EOS_WORD = '</s>'
 BLANK_WORD = "<blank>"
-NUM_WORD = '<num>'
-
 
 class Translation(object):
     def __init__(self, src, n_avlb, vocab, policy_fn, **kwargs,):
