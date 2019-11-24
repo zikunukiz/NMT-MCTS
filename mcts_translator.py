@@ -114,7 +114,7 @@ class MCTS(object):
         while(1):
             if node.is_leaf():
                 break
-            # Greedily select next move.
+            # Greedily select next word.
             action, node = node.select(self._c_puct)
             state.do_move(action) # assume state has do_move function
 
@@ -176,23 +176,23 @@ class MCTSTranslator(object):
     def get_action(self, translation, temp=1e-3, return_prob=0):
         available_words = translation.availables
         # the pi vector returned by MCTS as in the alphaGo Zero paper
-        move_probs = np.zeros(translation.size)
+        word_probs = np.zeros(translation.size)
         if len(available_words) > 0:
             acts, probs = self.mcts.get_move_probs(translation, temp)
-            move_probs[list(acts)] = probs
+            word_probs[list(acts)] = probs
 
             # with the default temp=1e-3, it is almost equivalent
             # to choosing the move with the highest prob
-            move = np.random.choice(acts, p=probs)
+            word_id = np.random.choice(acts, p=probs)
             # reset the root node
             self.mcts.update_with_move(-1)
-            word = translation.select_next_word(move)
+            word = translation.select_next_word(word_id)
             print("system chose: %d\n" % (word))
 
             if return_prob:
-                return move, move_probs
+                return word_id, word_probs
             else:
-                return move
+                return word
         else:
             print("WARNING: no word left to select")
 

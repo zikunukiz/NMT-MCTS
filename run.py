@@ -9,40 +9,34 @@ from state import Translate, Translator
 from mcts_translator import MCTSTranslator
 from policy_value_net_pytorch import PolicyValueNet
 
-def run():
+def run(): # from human_play.py
     model_file = 'best_policy_8_8_5.model'
-    
-        translate = Translate(translation)
+    try:
+        policy_param = pickle.load(open(model_file, 'rb'))
+    except:
+        policy_param = pickle.load(open(model_file, 'rb'),
+                                   encoding='bytes')  # To support python3
 
-        # load the trained policy_value_net in either Theano/Lasagne, PyTorch or TensorFlow
+    try:
+	    best_policy = PolicyValueNet(vocab_size, policy_param)
+	    vocab = TGT.vocab.itos
+	    translation = Translation(n_avlb, vocab, best_policy)
+	    translate = Translate(translation)
+	    mcts_translator = MCTSTranslator(best_policy.policy_value_fn,
+	                             c_puct=5,
+	                             n_playout=400)  # set larger n_playout for better performance
 
-        # best_policy = PolicyValueNet(width, height, model_file = model_file)
-        # mcts_player = MCTSPlayer(best_policy.policy_value_fn, c_puct=5, n_playout=400)
-
-        # load the provided model (trained in Theano/Lasagne) into a MCTS player written in pure numpy
-        try:
-            policy_param = pickle.load(open(model_file, 'rb'))
-        except:
-            policy_param = pickle.load(open(model_file, 'rb'),
-                                       encoding='bytes')  # To support python3
-
-        try:
-		    best_policy = PolicyValueNet(vocab_size, policy_param)
-		    translate = Translate(translation, vocab, best_policy)
-		    mcts_translator = MCTSTranslator(best_policy.policy_value_fn,
-		                             c_puct=5,
-		                             n_playout=400)  # set larger n_playout for better performance
-
-		    # set start_player=0 for human first
-        	translate.start_translate(mcts_translator, is_shown=1)
-    	except KeyboardInterrupt:
-        	print('\n\rquit')
+	    # set start_player=0 for human first
+    	translate.start_translate(mcts_translator, is_shown=1)
+	except KeyboardInterrupt:
+    	print('\n\rquit')
 
 
 
 class TrainPipeline():
     def __init__(self, init_model=None):
         # params of the board and the game
+        # TO DO: change to translation
         self.board_width = 6
         self.board_height = 6
         self.n_in_row = 4

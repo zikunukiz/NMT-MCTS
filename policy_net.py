@@ -17,7 +17,6 @@ def set_learning_rate(optimizer, lr):
         param_group['lr'] = lr
 
 class PositionalEncoding(nn.Module):
-
     def __init__(self, d_model, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
@@ -114,6 +113,7 @@ class PolicyNet():
     def __init__(self, main_params, path_to_policy=None):
         self.use_gpu = True if main_params.device == 'cuda:0' else False
         self.l2_const = 1e-4  # coef of l2 penalty
+        self.device = main_params.device
         
         # the policy value net module
         if self.use_gpu:
@@ -126,14 +126,17 @@ class PolicyNet():
             net_params = torch.load(path_to_policy)
             self.policy_net.load_state_dict(net_params)
 
-    def get_log_act_prob(src_tensor, dec_input, src_key_padding_mask, src_key_padding_mask, encoder_output):
+    def get_log_act_prob(src_tensor, dec_input, encoder_output):
+        # dec_input = src_tensor[0,:].view(1,-1)
+    	src_key_padding_mask = (src_tensor==dataset_dict['src_padding_ind']).transpose(0,1)
         output, _ = self.policy.forward(src_tensor, dec_input, src_key_padding_mask=src_key_padding_mask, 
                                                     tgt_mask=None, tgt_key_padding_mask=None, 
-                                                    memory_key_padding_mask=src_key_padding_mask, memory=encoder_output)
+                                                    memory_key_padding_mask=src_key_padding_mask, 
+                                                    memory=encoder_output)
         log_act_probs = F.log_softmax(output[-1,:,:], dim=1)
         return log_act_probs
 
-    def policy_value(self, state_batch):
+    def policy_value(self, state_batch): # TO DO
         """
         input: a batch of states
         output: a batch of action probabilities and state values
@@ -147,7 +150,7 @@ class PolicyNet():
             state_batch = Variable(torch.FloatTensor(state_batch))
             log_act_probs = self.policy_net(state_batch)
             act_probs = np.exp(log_act_probs.data.numpy())
-            return act_probs 
+            return act_probs
 
     def policy_fn(self, translation): 
         """
@@ -157,17 +160,17 @@ class PolicyNet():
         """
         # TO DO
         legal_positions = translation.availables
-        current_state = np.ascontiguousarray(translation.current_state().reshape(
-                -1, 4, self.board_width, self.board_height))
-        current_state = 
+        src, output = translation.current_state()
         if self.use_gpu:
-            log_act_probs = self.policy_net(
-                    Variable(torch.from_numpy(current_state)).cuda().float())
+			log_act_probs = self.policy_net(
+                Variable(torch.from_numpy(np.array(src).reshape(-1, 1)).to(self.device)),
+                Variable(torch.from_numpy(np.array(output).reshape(-1, 1)).to(self.device))
             act_probs = np.exp(log_act_probs.data.cpu().numpy().flatten())
-        # else:
-        #     log_act_probs = self.policy_value_net(
-        #             Variable(torch.from_numpy(current_state)).float())
-        #     act_probs = np.exp(log_act_probs.data.numpy().flatten())
+        else:
+        	log_act_probs = self.policy_net(
+               	Variable(torch.from_numpy(np.array(src).reshape(-1, 1)).to(self.device)),
+                Variable(torch.from_numpy(np.array(output).reshape(-1, 1)).to(self.device))
+            act_probs = np.exp(log_act_probs.data.cpu().numpy().flatten())
         act_probs = zip(legal_positions, act_probs[legal_positions])
         return act_probs
 

@@ -13,39 +13,39 @@ EOS_WORD = '</s>'
 BLANK_WORD = "<blank>"
 NUM_WORD = '<num>'
 
-# vocab is a list of tokenized strings
-# vocab = TGT.vocab.itos
+
 class Translation(object):
-    def __init__(self, n_avlb, vocab, policy_fn, **kwargs,):
-         # 200 is the default value
+    def __init__(self, src, n_avlb, vocab, policy_fn, **kwargs,):
+    	"""
+		n_avlb: number of available word to choose at each step
+    	src: list of indices (SRC vocab) representing source sentence 
+    	vocab: target vocabulary (TGT.vocab.itos)
+    	"""
         self.size = n_avlb
+        self.src = src # list of indices
         self.output = []
         self.policy_net = policy_fn
 
     def init_state(self):
         # TO DO: policy_value input should be the current decoding state
         # pick highest 200 probability words
-        # word_probs numpy array
+        # assume word_probs numpy array
         word_probs = self.policy_net.policy_value()
         top_ids = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
         self.availables = vocab[top_ids]
         self.last_word_id = BOS_WORD
 
     def current_state(self): 
-    # TO DO
+    # TO DO:
     # current_states go to states -> state_batch to train policy
     # in order to get log_prob from state, we need dec_input, which comes from target (need tgt_mask?)
-
-        return square_state[:, ::-1, :]
+        return self.src, self.output
 
     def select_next_word(self, word_id):
-        h = move // self.width
-        w = move % self.width
-        return [h, w]
+        return vocab[word_id]
 
     def do_move(self, word_id): # can change name to choose_word
         # word_id is the index in the vocab
-        # TO DO: select new available moves
         # TO DO: normalize other probabilities
         # add word as new input 
         word_probs = self.policy_net.policy_value()
@@ -131,7 +131,7 @@ class Translate(object):
 
     def start_train_translate(self, translator, is_shown=0, temp=1e-3): 
         """ start a self-play game using a MCTS player, reuse the search tree,
-        and store the self-play data: (state, mcts_probs, z) for training
+        	and store the self-play data: (state, mcts_probs, z) for training
         """
         self.translation.init_state()
         states, mcts_probs, bleus_z = [], [], []
