@@ -141,7 +141,7 @@ class PolicyValueNet():
         # optimizer
         self.optimizer = optim.Adam(self.policy_net.parameters(), weight_decay=self.l2_const)
 
-    def policy_value(src_tensor, dec_input, encoder_output):
+    def policy_value(src_tensor, dec_input, encoder_output = None):
     	"""
     	input: batch of states (tensor)
     		src_tensor: batch of source sentences 
@@ -150,6 +150,7 @@ class PolicyValueNet():
 			act_probs: batch size x vocab size 6565
 			value: batch_size x 1
     	"""
+        ### TO DO Reshape to (-1,1)?
     	src_key_padding_mask = (src_tensor==dataset_dict['src_padding_ind']).transpose(0,1)
         policy_output, encouder_output = self.policy_net.forward(src_tensor, dec_input, 
         									src_key_padding_mask=src_key_padding_mask, 
@@ -178,7 +179,7 @@ class PolicyValueNet():
         action and the score of the translation state
         """
         legal_positions = translation.availables
-        src, output = translation.current_state()
+        (src, output) = translation.current_state()
 
         if self.use_gpu:
         	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1))).to(self.device)        	
@@ -200,7 +201,7 @@ class PolicyValueNet():
         """perform a training step"""
         # wrap in Variable
         if self.use_gpu:
-            state_batch = Variable(torch.FloatTensor(state_batch)).to(self.device)
+            state_batch = Variable(torch.FloatTensor(state_batch)).to(self.device) # (src, output) tuples
             mcts_probs = Variable(torch.FloatTensor(mcts_probs)).to(self.device)
             bleu_batch = Variable(torch.FloatTensor(bleu_batch)).to(self.device)
         else:
@@ -213,9 +214,8 @@ class PolicyValueNet():
         # set learning rate
         set_learning_rate(self.optimizer, lr)
 
-        # forward
-        # TO DO make sure these are tensors
-        log_act_probs, value = self.policy_net(state_batch)
+        # forward pass
+        log_act_probs, value = self.policy_net.policy_value(state_batch[0], state_batch[1])
 
         if self.use_gpu:
             log_act_probs = Variable(torch.from_numpy(log_act_probs)).to(self.device)

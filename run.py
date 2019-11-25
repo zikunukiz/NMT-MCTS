@@ -9,37 +9,31 @@ from mcts_translator import MCTSTranslator
 from policy_net import PolicyValueNet, MainParams
 from load_data import createIterators
 
-def setup(working_path, policy_pt, value_pt): # from human_play.py
-    policy_file = working_path + policy_pt
-    value_file = working_path + value_pt
+# def setup(working_path, policy_pt, value_pt): # from human_play.py
+#     policy_file = working_path + policy_pt
+#     value_file = working_path + value_pt
 
-    try:
-	    best_policy = PolicyValueNet(main_params, policy_file, value_file)
-	    vocab = vocab
-	    # Need SRC? pass in data_iterator??
-	    translation = Translation(n_avlb, vocab, best_policy)
-	    translate = Translate(translation)
-	    mcts_translator = MCTSTranslator(best_policy.policy_value_fn,
-	                             c_puct=5,
-	                             n_playout=400)  # set larger n_playout for better performance
+#     try:
+# 	    best_policy = PolicyValueNet(main_params, policy_file, value_file)
+# 	    vocab = vocab
+# 	    # Need SRC? pass in data_iterator??
+# 	    translation = Translation(n_avlb, vocab, best_policy)
+# 	    translate = Translate(translation)
+# 	    mcts_translator = MCTSTranslator(best_policy.policy_value_fn,
+# 	                             c_puct=5,
+# 	                             n_playout=400)  # set larger n_playout for better performance
 
-	    # set start_player=0 for human first
-    	translate.start_translate(mcts_translator, is_shown=0)
-	except KeyboardInterrupt:
-    	print('\n\rquit')
+# 	    # set start_player=0 for human first
+#     	translate.start_translate(mcts_translator, is_shown=0)
+# 	except KeyboardInterrupt:
+#     	print('\n\rquit')
 
 
 class TrainPipeline():
-    def __init__(self, init_model=None):
+    def __init__(self, src, tgt, vocab, init_params, init_policy_model=None, init_value_model=None):
         # params of the board and the game
-        # TO DO: change to translation
-        self.board_width = 6
-        self.board_height = 6
-        self.n_in_row = 4
-        self.board = Board(width=self.board_width,
-                           height=self.board_height,
-                           n_in_row=self.n_in_row)
-        self.game = Game(self.board)
+        # TO DO: put in SRC sentences
+
         # training params
         self.learn_rate = 2e-3
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
@@ -53,30 +47,37 @@ class TrainPipeline():
         self.epochs = 5  # num of train_steps for each update
         self.kl_targ = 0.02
         self.check_freq = 50
-        self.game_batch_num = 1500
-        self.best_win_ratio = 0.0
+        self.translation_batch_num = 100
+        # self.best_win_ratio = 0.0
+
         # num of simulations used for the pure mcts, which is used as
         # the opponent to evaluate the trained policy
-        self.pure_mcts_playout_num = 1000
+        # self.pure_mcts_playout_num = 1000
         if init_model:
             # start training from an initial policy-value net
-            self.policy_value_net = PolicyValueNet(self.board_width,
-                                                   self.board_height,
-                                                   model_file=init_model)
+            self.policy_value_net = PolicyValueNet(main_params=init_params,
+                                                   path_to_policy=init_policy_model,
+                                                   path_to_value=init_value_model)
         else:
             # start training from a new policy-value net
-            self.policy_value_net = PolicyValueNet(self.board_width,
-                                                   self.board_height)
-        self.mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
+            self.policy_value_net = PolicyValueNet(main_params=init_params)
+        self.mcts_translator = MCTSTranslator(self.policy_value_net.policy_value_fn,
                                       c_puct=self.c_puct,
                                       n_playout=self.n_playout,
                                       is_selfplay=1)
 
+        self.n_avlb = 200
+        self.src = src
+        self.tgt = tgt
+        self.vocab = vocab
+        self.translation = Translation(self.src, self.tgt, self.n_avlb, self.vocab, self.policy_value_net)
+        self.translate = translate(self.translation)
+
     def run(self):
         """run the training pipeline"""
         try:
-            for i in range(self.game_batch_num):
-                self.collect_selfplay_data(self.play_batch_size)
+            for i in range(self.translation_batch_num):
+                self.collect_translation_data(self.play_batch_size)
                 print("batch i:{}, episode_len:{}".format(
                         i+1, self.episode_len))
                 if len(self.data_buffer) > self.batch_size:
@@ -100,29 +101,29 @@ class TrainPipeline():
             print('\n\rquit')
 
 
-    def collect_selfplay_data(self, n_games=1): # collect_train_translation_data
+    def collect_translation_data(self, n_translations=1): # collect_train_translation_data
         """collect self-play data for training"""
-        for i in range(n_games):
-            winner, play_data = self.game.start_self_play(self.mcts_player,
-                                                          temp=self.temp) # start_train_translate
-            play_data = list(play_data)[:]
-            self.episode_len = len(play_data)
+        for i in range(n_translations):
+            bleus, translation_data = self.translation.start_train_translate(self.mcts_translator,
+                                                          temp=self.temp)
+            translation_data = list(translation_data)[:]
+            self.episode_len = len(translation_data)
             # augment the data
-            play_data = self.get_equi_data(play_data)
-            self.data_buffer.extend(play_data)
+            translation_data = self.get_equi_data(translation_data)
+            self.data_buffer.extend(translation_data)
 
     def policy_update(self):
         """update the policy-value net"""
         mini_batch = random.sample(self.data_buffer, self.batch_size)
         state_batch = [data[0] for data in mini_batch]
         mcts_probs_batch = [data[1] for data in mini_batch]
-        winner_batch = [data[2] for data in mini_batch]
+        bleu_batch = [data[2] for data in mini_batch]
         old_probs, old_v = self.policy_value_net.policy_value(state_batch)
         for i in range(self.epochs):
             loss, entropy = self.policy_value_net.train_step(
                     state_batch,
                     mcts_probs_batch,
-                    winner_batch,
+                    bleu_batch,
                     self.learn_rate*self.lr_multiplier)
             new_probs, new_v = self.policy_value_net.policy_value(state_batch)
             kl = np.mean(np.sum(old_probs * (
@@ -138,11 +139,11 @@ class TrainPipeline():
             self.lr_multiplier *= 1.5
 
         explained_var_old = (1 -
-                             np.var(np.array(winner_batch) - old_v.flatten()) /
-                             np.var(np.array(winner_batch)))
+                             np.var(np.array(bleu_batch) - old_v.flatten()) /
+                             np.var(np.array(bleu_batch)))
         explained_var_new = (1 -
-                             np.var(np.array(winner_batch) - new_v.flatten()) /
-                             np.var(np.array(winner_batch)))
+                             np.var(np.array(bleu_batch) - new_v.flatten()) /
+                             np.var(np.array(bleu_batch)))
         print(("kl:{:.5f},"
                "lr_multiplier:{:.3f},"
                "loss:{},"
@@ -156,68 +157,40 @@ class TrainPipeline():
                         explained_var_old,
                         explained_var_new))
         return loss, entropy
-
-    def value_update(self):
-        """update the policy-value net"""
-        mini_batch = random.sample(self.data_buffer, self.batch_size)
-        state_batch = [data[0] for data in mini_batch]
-        mcts_probs_batch = [data[1] for data in mini_batch]
-        winner_batch = [data[2] for data in mini_batch]
-        old_probs, old_v = self.policy_value_net.policy_value(state_batch)
-        for i in range(self.epochs):
-            loss, entropy = self.policy_value_net.train_step(
-                    state_batch,
-                    mcts_probs_batch,
-                    winner_batch,
-                    self.learn_rate*self.lr_multiplier)
-            new_probs, new_v = self.policy_value_net.policy_value(state_batch)
-            kl = np.mean(np.sum(old_probs * (
-                    np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)),
-                    axis=1)
-            )
-            if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
-                break
-        # adaptively adjust the learning rate
-        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.1:
-            self.lr_multiplier /= 1.5
-        elif kl < self.kl_targ / 2 and self.lr_multiplier < 10:
-            self.lr_multiplier *= 1.5
-
-        explained_var_old = (1 -
-                             np.var(np.array(winner_batch) - old_v.flatten()) /
-                             np.var(np.array(winner_batch)))
-        explained_var_new = (1 -
-                             np.var(np.array(winner_batch) - new_v.flatten()) /
-                             np.var(np.array(winner_batch)))
-        print(("kl:{:.5f},"
-               "lr_multiplier:{:.3f},"
-               "loss:{},"
-               "entropy:{},"
-               "explained_var_old:{:.3f},"
-               "explained_var_new:{:.3f}"
-               ).format(kl,
-                        self.lr_multiplier,
-                        loss,
-                        entropy,
-                        explained_var_old,
-                        explained_var_new))
-        return loss, entropy
-
 
 
 if __name__ == '__main__':
-    # training_pipeline = TrainPipeline()
-    # training_pipeline.run()
-
     # create iterator to loop over batch data
-    batch_size = 1
+    
     working_path = ''
+    policy_pt = 'savedModels/policy_supervised_RLTrained.pt'
+    value_pt = 'savedModels/value_supervised_RLTrained.pt'
+
+    batch_size = 1
     dataset_dict = createIterators(batch_size, working_path + 'iwsltTokenizedData/')
     
     # English vocabulary
     eng_vocab = datasetDict['TGT'].vocab.itos
+    src_vocab_size = len(dataset_dict['SRC'].vocab.itos)
+    tgt_vocab_size = len(eng_vocab)
+    main_params = MainParams(dropout=0.2, src_vocab_size=src_vocab_size,
+                  tgt_vocab_size=tgt_vocab_size, batch_size=batch_size)
 
-    # load model and initialize translaion
-    # setup(working_path + 'savedModels/policy_supervised_RLTrained.pt', eng_vocab)
+    device = main_params.device
+
+    dataset_type = "train"
+    dataset_iterator = dataset_dict[train + '_iter']
+
+    policy_file = working_path + policy_pt
+    value_file = working_path + value_pt
+    
+    for batch in dataset_iterator:
+        src = vars(batch)['de'].view(-1).tolist()
+        tgt = vars(batch)['en'].view(-1).tolist()
+
+        training_pipeline = TrainPipeline(src, tgt, eng_vocab, init_params, 
+                            init_policy_model=policy_file, init_value_model=value_file)
+        training_pipeline.run()
+        break
 
 

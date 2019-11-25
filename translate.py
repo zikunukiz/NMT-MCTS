@@ -13,7 +13,7 @@ EOS_WORD = '</s>'
 BLANK_WORD = "<blank>"
 
 class Translation(object):
-    def __init__(self, src, n_avlb, vocab, policy_value_fn, **kwargs,):
+    def __init__(self, src, tgt, n_avlb, vocab, policy_value_fn, **kwargs,):
     	"""
 		n_avlb: number of available word to choose at each step
     	src: list of indices (SRC vocab) representing source sentence 
@@ -21,6 +21,7 @@ class Translation(object):
     	"""
         self.size = n_avlb
         self.src = np.array(src) # list of indices
+        self.tgt = np.array(tgt) # list of indices
         self.output = np.array([BOS_WORD])
         self.policy_value_net = policy_value_fn
         self.device = policy_fn.device
@@ -63,8 +64,8 @@ class Translation(object):
 
     def translation_end(self):
         """Check whether the translation is ended or not"""
-        reference = self.src.to_list()
         prediction = self.output.to_list()
+        reference = self.tgt.to_list()
         if vocab[last_word_id] == EOS_WORD:
             bleu = sacrebleu.sentence_bleu(reference, prediction, smooth_method='exp')     
             return True, bleu
@@ -152,7 +153,7 @@ class Translate(object):
                                                  temp=temp,
                                                  return_prob=1)
             # store the data
-            states.append(self.translation.current_state())
+            states.append((self.translation.current_state())) # a tuple of (src, output)
             mcts_probs.append(word_probs)
             # choose a word (perform a move)
             self.translation.do_move(word_id)
