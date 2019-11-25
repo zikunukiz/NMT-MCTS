@@ -13,30 +13,39 @@ EOS_WORD = '</s>'
 BLANK_WORD = "<blank>"
 
 class Translation(object):
-    def __init__(self, src, n_avlb, vocab, policy_fn, **kwargs,):
+    def __init__(self, src, n_avlb, vocab, policy_value_fn, **kwargs,):
     	"""
 		n_avlb: number of available word to choose at each step
     	src: list of indices (SRC vocab) representing source sentence 
     	vocab: target vocabulary (TGT.vocab.itos)
     	"""
         self.size = n_avlb
-        self.src = src # list of indices
-        self.output = []
-        self.policy_net = policy_fn
+        self.src = np.array(src) # list of indices
+        self.output = np.array([BOS_WORD])
+        self.policy_value_net = policy_value_fn
+        self.device = policy_fn.device
 
     def init_state(self):
         # TO DO: policy_value input should be the current decoding state
         # pick highest 200 probability words
         # assume word_probs numpy array
-        word_probs = self.policy_net.policy_value()
+        if self.use_gpu == True:
+        	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1)))
+        						.to_device(policy_value_fn.device)      	
+        	dec_input = Variable(torch.from_numpy(np.array(output).reshape(-1, 1)))
+        						.to_device(policy_value_fn.device)
+        else:
+        	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1)))
+        	dec_input = Variable(torch.from_numpy(np.array(output).reshape(-1, 1)))
+
+        log_word_probs, value, = self.policy_value_net.policy_value(src_tensor, dec_input)
+        word_probs = np.exp(log_word_probs)
         top_ids = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
         self.availables = top_ids
         self.last_word_id = BOS_WORD
 
     def current_state(self): 
-    # TO DO:
-    # current_states go to states -> state_batch to train policy
-    # in order to get log_prob from state, we need dec_input, which comes from target (need tgt_mask?)
+    	# Q There are two outputs for now, does it fit with data buffer? 
         return self.src, self.output
 
     def select_next_word(self, word_id):
@@ -44,44 +53,46 @@ class Translation(object):
 
     def do_move(self, word_id): # can change name to choose_word
         # word_id is the index in the vocab
-        # TO DO: normalize other probabilities
+        # TO DO: normalize other probabilities?
         # add word as new input 
-        word_probs = self.policy_net.policy_value()
+        word_probs = self.policy_value_net.policy_value()
         top_ind = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
         self.availables = vocab[top_ind]
         self.last_word_id = word_id
         self.output.append(word_id)
 
-    def translation_end(self, tgt_tensor):
+    def translation_end(self):
         """Check whether the translation is ended or not"""
+        reference = self.src.to_list()
+        prediction = self.output.to_list()
         if vocab[last_word_id] == EOS_WORD:
-            bleu = sacrebleu.sentence_bleu(reference, self.output, smooth_method='exp')     
+            bleu = sacrebleu.sentence_bleu(reference, prediction, smooth_method='exp')     
             return True, bleu
         else:
             return False, -1
 
-    def get_bleu_scores(trg_tensor, pred_tensor, vocab):
-        bleus_per_sentence = torch.zeros(trg_tensor.shape[1],requires_grad=False) 
-        for col in range(trg_tensor.shape[1]): #each column contains sentence
-	        true_sentence = [vocab[i] for i in trg_tensor[:,col] if vocab[i] != BLANK_WORD][1:-1]
-	        pred_sentence = [vocab[i] for i in pred_tensor[:,col] if vocab[i] != BLANK_WORD]
-	        #now also need to stop pred_sentence after first EOS_WORD outputted
-	        #also don't want to use BOS chars
-	        ind_first_eos = 0
-	        for tok in pred_sentence:
-	          if tok == EOS_WORD:
-	            break
-	          ind_first_eos += 1
-	        if ind_first_eos != 0:
-	          pred_sentence = pred_sentence[1:ind_first_eos] #this gets rid of EOS_WORD
-	        #now undo some of the weird tokenization
-	        pred_sentence = fix_sentence(pred_sentence)
-	        true_sentence = fix_sentence(true_sentence)
+    # def get_bleu_scores(trg_tensor, pred_tensor, vocab):
+    #     bleus_per_sentence = torch.zeros(trg_tensor.shape[1],requires_grad=False) 
+    #     for col in range(trg_tensor.shape[1]): #each column contains sentence
+	   #      true_sentence = [vocab[i] for i in trg_tensor[:,col] if vocab[i] != BLANK_WORD][1:-1]
+	   #      pred_sentence = [vocab[i] for i in pred_tensor[:,col] if vocab[i] != BLANK_WORD]
+	   #      #now also need to stop pred_sentence after first EOS_WORD outputted
+	   #      #also don't want to use BOS chars
+	   #      ind_first_eos = 0
+	   #      for tok in pred_sentence:
+	   #        if tok == EOS_WORD:
+	   #          break
+	   #        ind_first_eos += 1
+	   #      if ind_first_eos != 0:
+	   #        pred_sentence = pred_sentence[1:ind_first_eos] #this gets rid of EOS_WORD
+	   #      #now undo some of the weird tokenization
+	   #      pred_sentence = fix_sentence(pred_sentence)
+	   #      true_sentence = fix_sentence(true_sentence)
 	        
-	        # sacrebleu to account for sentence length
-	        score = sacrebleu.sentence_bleu(pred_sentence, true_sentence, smooth_method='exp').score
-	        bleus_per_sentence[col] = score/100.0
-        return bleus_per_sentence
+	   #      # sacrebleu to account for sentence length
+	   #      score = sacrebleu.sentence_bleu(pred_sentence, true_sentence, smooth_method='exp').score
+	   #      bleus_per_sentence[col] = score/100.0
+    #     return bleus_per_sentence
 
     def fix_sentence(sentence):
         """get original sentences from tokenizations"""
@@ -111,6 +122,9 @@ class Translate(object):
     def __init__(self, translation, **kwargs):
         self.translation = translation
 
+    def graphic(translation):
+    	pass
+
     def start_translate(self, translator, is_shown=1):
         """start translation"""
         translator = translator
@@ -128,8 +142,8 @@ class Translate(object):
                 return translation
 
     def start_train_translate(self, translator, is_shown=0, temp=1e-3): 
-        """ start a self-play game using a MCTS player, reuse the search tree,
-        	and store the self-play data: (state, mcts_probs, z) for training
+        """ start a translation using a MCTS player, reuse the search tree,
+        	and store the translation data: (state, mcts_probs, z) for training
         """
         self.translation.init_state()
         states, mcts_probs, bleus_z = [], [], []

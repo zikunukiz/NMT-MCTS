@@ -66,7 +66,6 @@ class TransformerModel(nn.Module):
     def change_to_value_net(self):
         self.linear = Linear(self.d_model, 1) #now doing regression
         torch.nn.init.xavier_uniform(self.linear.weight) #initialize new weights
-        
     
     '''
     src_key_padding_mask: mask out padded portion of src (is (N,S))
@@ -182,8 +181,8 @@ class PolicyValueNet():
         src, output = translation.current_state()
 
         if self.use_gpu:
-        	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1)).to(self.device))        	
-        	output_tensor = Variable(torch.from_numpy(np.array(output).reshape(-1, 1)).to(self.device))
+        	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1))).to(self.device)        	
+        	output_tensor = Variable(torch.from_numpy(np.array(output).reshape(-1, 1))).to(self.device)
 			log_act_probs, value = policy_value(src_tensor, output_tensor, None)                
 			act_probs = np.exp(log_act_probs)
 
@@ -201,9 +200,9 @@ class PolicyValueNet():
         """perform a training step"""
         # wrap in Variable
         if self.use_gpu:
-            state_batch = Variable(torch.FloatTensor(state_batch).to(self.device))
-            mcts_probs = Variable(torch.FloatTensor(mcts_probs).to(self.device))
-            bleu_batch = Variable(torch.FloatTensor(bleu_batch).to(self.device))
+            state_batch = Variable(torch.FloatTensor(state_batch)).to(self.device)
+            mcts_probs = Variable(torch.FloatTensor(mcts_probs)).to(self.device)
+            bleu_batch = Variable(torch.FloatTensor(bleu_batch)).to(self.device)
         else:
             state_batch = Variable(torch.FloatTensor(state_batch))
             mcts_probs = Variable(torch.FloatTensor(mcts_probs))

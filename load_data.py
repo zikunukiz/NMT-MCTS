@@ -20,7 +20,6 @@ def createIterators(batch_size, data_path):
     TGT = Field(sequential=True, tokenize=tokenize, init_token = BOS_WORD, 
                                         eos_token = EOS_WORD, pad_token=BLANK_WORD)
 
-    #MAX_LEN = 30 #start small at max 15 tokens
     train, valid, test = TabularDataset.splits(
                path=data_path, # the root directory where the data lies
                train='combined_train.tsv',
@@ -45,16 +44,9 @@ def createIterators(batch_size, data_path):
                                         sort_key=lambda x: data.interleave_keys(len(x.en), len(x.de)), 
                     sort_within_batch=True, shuffle=True,repeat=False) #,device=0)
 
-    #NOTE: each batch in train_iter has shape (max numtokens in batch, batch size) but for each batch
+    # NOTE: each batch in train_iter has shape (max numtokens in batch, batch size) but for each batch
     # may have different max num tokens
-    '''
-    #now trying to print words from iter to see that this makes sense
-    for t in train_iter:
-        trgTensor = vars(t)['trg']
-        print(trgTensor)
-        print([TGT.vocab.itos[i] for i in trgTensor[:,0]])
-        break
-    '''
+
     datasetDict = {'train_iter':train_iter, 'val_iter':val_iter, 'test_iter':test_iter, 'SRC':SRC, 'TGT':TGT, 
                    'src_padding_ind':src_padding_ind, 'tgt_padding_ind':tgt_padding_ind, 'tgt_eos_ind':tgt_eos_ind}
     
