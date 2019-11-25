@@ -30,7 +30,7 @@ class Translation(object):
         # assume word_probs numpy array
         word_probs = self.policy_net.policy_value()
         top_ids = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
-        self.availables = vocab[top_ids]
+        self.availables = top_ids
         self.last_word_id = BOS_WORD
 
     def current_state(self): 
