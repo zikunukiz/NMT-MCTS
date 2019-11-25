@@ -6,20 +6,17 @@
 from __future__ import print_function
 from state import Translate, Translator
 from mcts_translator import MCTSTranslator
-from policy_net import PolicyNet
+from policy_net import PolicyValueNet, MainParams
 from load_data import createIterators
 
-def run(file_path, vocab): # from human_play.py
-    model_file = file_path
-    try:
-        policy_param = pickle.load(open(model_file, 'rb'))
-    except:
-        policy_param = pickle.load(open(model_file, 'rb'),
-                                   encoding='bytes')  # To support python3
+def setup(working_path, policy_pt, value_pt): # from human_play.py
+    policy_file = working_path + policy_pt
+    value_file = working_path + value_pt
 
     try:
-	    best_policy = PolicyValueNet(vocab_size, policy_param)
+	    best_policy = PolicyValueNet(main_params, policy_file, value_file)
 	    vocab = vocab
+	    # Need SRC? pass in data_iterator??
 	    translation = Translation(n_avlb, vocab, best_policy)
 	    translate = Translate(translation)
 	    mcts_translator = MCTSTranslator(best_policy.policy_value_fn,
@@ -27,10 +24,9 @@ def run(file_path, vocab): # from human_play.py
 	                             n_playout=400)  # set larger n_playout for better performance
 
 	    # set start_player=0 for human first
-    	translate.start_translate(mcts_translator, is_shown=1)
+    	translate.start_translate(mcts_translator, is_shown=0)
 	except KeyboardInterrupt:
     	print('\n\rquit')
-
 
 
 class TrainPipeline():
@@ -222,6 +218,6 @@ if __name__ == '__main__':
     eng_vocab = datasetDict['TGT'].vocab.itos
 
     # load model and initialize translaion
-    run(working_path + 'savedModels/policy_supervised_RLTrained.pt', eng_vocab)
+    # setup(working_path + 'savedModels/policy_supervised_RLTrained.pt', eng_vocab)
 
 
