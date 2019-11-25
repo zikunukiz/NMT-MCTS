@@ -158,8 +158,7 @@ class PolicyValueNet():
                                             memory_key_padding_mask=src_key_padding_mask, 
                                             memory=encoder_output)
         log_act_probs = F.log_softmax(policy_output[-1,:,:], dim=1)
-        act_probs = torch.exp(log_act_probs)
-        act_probs = np.array(act_probs.tolist())
+        log_act_probs = np.array(log_act_probs.tolist())
         
         self.value_net.decoder_embedding.weight = nn.Parameter(policy_net.decoder_embedding.weight.clone())
 		value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
@@ -168,9 +167,9 @@ class PolicyValueNet():
                             				memory_key_padding_mask=src_key_padding_mask,
                             				memory=encoder_output)
 		# convert to numpy array
-		value_output = np.array(value_output.view(1,-1).tolist()[0])
-		# value = nn.Sigmoid(value_output[inds_to_use.long(), batch_indices, 0])
-        return act_probs, value_output
+		value_output = torch.sigmoid(value_output.view(1, -1)[0])
+		value = np.array(value_output.tolist())
+        return log_act_probs, value
 
 
     def policy_value_fn(self, translation): 
@@ -185,28 +184,30 @@ class PolicyValueNet():
         if self.use_gpu:
         	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1)).to(self.device))        	
         	output_tensor = Variable(torch.from_numpy(np.array(output).reshape(-1, 1)).to(self.device))
-			act_probs, value = policy_value(src_tensor, output_tensor, None)                
+			log_act_probs, value = policy_value(src_tensor, output_tensor, None)                
+			act_probs = np.exp(log_act_probs)
 
         else:
         	src_tensor = Variable(torch.from_numpy(np.array(src).reshape(-1, 1)))
         	output_tensor = Variable(torch.from_numpy(np.array(output).reshape(-1, 1)))
-			act_probs, value = policy_value(src_tensor, output_tensor, None)   
+			act_probs, value = policy_value(src_tensor, output_tensor, None)
+			act_probs = np.exp(log_act_probs)
         
         act_probs = zip(legal_positions, act_probs[legal_positions])
 
         return act_probs, value
 
-    def train_step(self, state_batch, mcts_probs, winner_batch, lr):
+    def train_step(self, state_batch, mcts_probs, bleu_batch, lr):
         """perform a training step"""
         # wrap in Variable
         if self.use_gpu:
-            state_batch = Variable(torch.FloatTensor(state_batch).cuda())
-            mcts_probs = Variable(torch.FloatTensor(mcts_probs).cuda())
-            winner_batch = Variable(torch.FloatTensor(winner_batch).cuda())
+            state_batch = Variable(torch.FloatTensor(state_batch).to(self.device))
+            mcts_probs = Variable(torch.FloatTensor(mcts_probs).to(self.device))
+            bleu_batch = Variable(torch.FloatTensor(bleu_batch).to(self.device))
         else:
             state_batch = Variable(torch.FloatTensor(state_batch))
             mcts_probs = Variable(torch.FloatTensor(mcts_probs))
-            winner_batch = Variable(torch.FloatTensor(winner_batch))
+            bleu_batch = Variable(torch.FloatTensor(bleu_batch))
 
         # zero the parameter gradients
         self.optimizer.zero_grad()
@@ -214,20 +215,29 @@ class PolicyValueNet():
         set_learning_rate(self.optimizer, lr)
 
         # forward
-        log_act_probs = self.policy_net(state_batch)
+        # TO DO make sure these are tensors
+        log_act_probs, value = self.policy_net(state_batch)
+
+        if self.use_gpu:
+            log_act_probs = Variable(torch.from_numpy(log_act_probs)).to(self.device)
+            value = Variable(torch.from_numpy(value)).to(self.device)
+        else:
+            log_act_probs = Variable(torch.from_numpy(log_act_probs))
+            value = Variable(torch.from_numpy(value))
+
         # define the loss = (z - v)^2 - pi^T * log(p) + c||theta||^2
         # Note: the L2 penalty is incorporated in optimizer
+        value_loss = F.mse_loss(value.view(-1), bleu_batch)
         policy_loss = -torch.mean(torch.sum(mcts_probs*log_act_probs, 1))
+        loss = value_loss + policy_loss
         # backward and optimize
-        policy_loss.backward()
+        loss.backward()
         self.optimizer.step()
         # calc policy entropy, for monitoring only
         entropy = -torch.mean(
                 torch.sum(torch.exp(log_act_probs) * log_act_probs, 1)
                 )
-        return policy_loss.data[0], entropy.data[0]
-        #for pytorch version >= 0.5 please use the following line instead.
-        #return loss.item(), entropy.item()
+        return loss.item(), entropy.item()
 
     def get_policy_param(self):
         net_params = self.policy_net.state_dict()
