@@ -88,7 +88,7 @@ class TreeNode(object):
 class MCTS(object):
     """An implementation of Monte Carlo Tree Search."""
 
-    def __init__(self, policy_fn, value_fn, c_puct=5, n_playout=10000):
+    def __init__(self, policy_value_fn, c_puct=5, n_playout=10000):
         """
         policy_value_fn: a function that takes in the state (i.e. input sentence and previous 
             translated words) and outputs a list of (action, probability) tuples and also 
@@ -99,8 +99,7 @@ class MCTS(object):
             relying on the prior more.
         """
         self._root = TreeNode(None, 1.0)
-        self._policy = policy_fn
-        self._value = value_fn
+        self._policy = policy_value_fn
         self._c_puct = c_puct
         self._n_playout = n_playout
 
@@ -110,20 +109,17 @@ class MCTS(object):
         State is modified in-place, so a copy must be provided.
         """
         node = self._root
-        action_probs = self._policy(state)
+        # Evaluate the leaf using a policy value network which outputs 
+        # a list of (action, probability) tuples p and a score v in [0, 1]
+        action_probs, leaf_value = self._policy(state)
         while(1):
             if node.is_leaf():
                 break
-            # Greedily select next word.
+            # Greedily select next word
             action, node = node.select(self._c_puct)
-            state.do_move(action) # assume state has do_move function
+            state.do_move(action)
 
-        # Evaluate the leaf using a policy network which outputs a list of (action, probability) tuples p 
-        # and a value network that gives a score v in [0, 1]
-        # action_probs = self._policy(state)
-        leaf_value = self._value(state)
-
-        # Check for end of game. ## end of translation
+        # Check for end of translation
         end, bleu = state.translation_end()
         if not end:
             node.expand(action_probs)
@@ -169,9 +165,9 @@ class MCTS(object):
 class MCTSTranslator(object):
     """AI translator based on MCTS"""
 
-    def __init__(self, policy_fn, value_fn,
+    def __init__(self, policy_value_fn,
                  c_puct=5, n_playout=2000, is_selfplay=0):
-        self.mcts = MCTS(policy_fn, value_fn, c_puct, n_playout)
+        self.mcts = MCTS(policy_value_fn, c_puct, n_playout)
 
     def get_action(self, translation, temp=1e-3, return_prob=0):
         available_words = translation.availables
