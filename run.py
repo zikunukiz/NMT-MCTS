@@ -31,9 +31,9 @@ from collections import deque
 
 
 class TrainPipeline():
-    def __init__(self, src, tgt, vocab, init_params, init_policy_model=None, init_value_model=None):
-        # params of the board and the game
-        # TO DO: put in SRC sentences
+    def __init__(self, src, tgt, vocab, init_params, 
+            init_policy_model=None, init_value_model=None):
+        # params of the translation
 
         # training params
         self.learn_rate = 2e-3
@@ -72,7 +72,7 @@ class TrainPipeline():
         self.tgt = tgt
         self.vocab = vocab
         self.translation = Translation(self.src, self.tgt, self.n_avlb, self.vocab, self.policy_value_net)
-        self.translate = translate(self.translation)
+        self.translate = Translate(self.translation)
 
     def run(self):
         """run the training pipeline"""
@@ -105,7 +105,7 @@ class TrainPipeline():
     def collect_translation_data(self, n_translations=1): # collect_train_translation_data
         """collect self-play data for training"""
         for i in range(n_translations):
-            bleus, translation_data = self.translation.start_train_translate(self.mcts_translator,
+            bleus, translation_data = self.translate.start_train_translate(self.mcts_translator,
                                                           temp=self.temp)
             translation_data = list(translation_data)[:]
             self.episode_len = len(translation_data)
@@ -177,6 +177,11 @@ if __name__ == '__main__':
     main_params = MainParams(dropout=0.2, src_vocab_size=src_vocab_size,
                   tgt_vocab_size=tgt_vocab_size, batch_size=batch_size)
 
+    print(main_params.model_params)
+
+    from policy_net import TransformerModel
+    policy_net = TransformerModel(**(main_params.model_params))
+    
     device = main_params.device
 
     dataset_type = "train"

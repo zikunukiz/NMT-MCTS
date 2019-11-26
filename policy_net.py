@@ -151,7 +151,7 @@ class PolicyValueNet():
         self.value_net = value_net
 
         # load parameters if available
-        if model_file:
+        if path_to_policy and path_to_value:
             policy_params = torch.load(path_to_policy)
             self.policy_net.load_state_dict(policy_params)
 

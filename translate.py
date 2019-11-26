@@ -5,12 +5,13 @@
 
 from __future__ import print_function
 import numpy as np
+from torch.autograd import Variable
+import torch
 import sacrebleu
 
-global BOS_WORD, EOS_WORD, BLANK_WORD
-BOS_WORD = '<s>'
-EOS_WORD = '</s>'
-BLANK_WORD = "<blank>"
+global BOS_WORD_ID, EOS_WORD_ID
+BOS_WORD_ID = '<s>'
+EOS_WORD_ID = '</s>'
 
 
 class Translation(object):
@@ -23,31 +24,31 @@ class Translation(object):
         self.size = n_avlb
         self.src = np.array(src)  # list of indices
         self.tgt = np.array(tgt)  # list of indices
-        self.output = np.array([BOS_WORD])
+        self.output = np.array([2]) # index in the vocab
         self.policy_value_net = policy_value_fn
-        self.device = policy_fn.device
+        self.device = policy_value_fn.device
 
     def init_state(self):
         # TO DO: policy_value input should be the current decoding state
         # pick highest 200 probability words
         # assume word_probs numpy array
-        if self.use_gpu == True:
-            src_tensor = Variable(torch.from_numpy(
-                np.array(src).reshape(-1, 1))).to_device(policy_value_fn.device)
-            dec_input = Variable(torch.from_numpy(
-                np.array(output).reshape(-1, 1))).to_device(policy_value_fn.device)
-        else:
-            src_tensor = Variable(torch.from_numpy(
-                np.array(src).reshape(-1, 1)))
-            dec_input = Variable(torch.from_numpy(
-                np.array(output).reshape(-1, 1)))
+        # if self.use_gpu == True:
+        src_tensor = Variable(torch.from_numpy(
+            np.array(self.src).reshape(-1, 1))).to(self.policy_value_net.device)
+        dec_input = Variable(torch.from_numpy(
+            np.array(self.output).reshape(-1, 1))).to(self.policy_value_net.device)
+        # else:
+        #     src_tensor = Variable(torch.from_numpy(
+        #         np.array(src).reshape(-1, 1)))
+        #     dec_input = Variable(torch.from_numpy(
+        #         np.array(output).reshape(-1, 1)))
 
         log_word_probs, value, = self.policy_value_net.policy_value(
             src_tensor, dec_input)
         word_probs = np.exp(log_word_probs)
         top_ids = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
         self.availables = top_ids
-        self.last_word_id = BOS_WORD
+        self.last_word_id = BOS_WORD_ID
 
     def current_state(self):
         # Q There are two outputs for now, does it fit with data buffer?
