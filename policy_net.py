@@ -21,7 +21,6 @@ def set_learning_rate(optimizer, lr):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
@@ -126,43 +125,39 @@ class MainParams:
 
 
 class PolicyValueNet():
-    """policy-value network """
+    """policy-value network"""
 
     def __init__(self, main_params, path_to_policy=None, path_to_value=None):
-        self.use_gpu = True if main_params.device == 'cuda:0' else False
+        self.use_gpu = True if main_params.device == torch.device('cuda:0') else False
         self.l2_const = 1e-4  # coef of l2 penalty
         self.device = main_params.device
 
         # the policy net
-        if self.use_gpu:
-            self.policy_net = TransformerModel(**(main_params.model_params)).to(
-                                main_params.device).double()
-        else:
-            self.policy_net = TransformerModel(**(main_params.model_params))
-
+        policy_net = TransformerModel(**(main_params.model_params))
         # the value net
         value_net = TransformerModel(**(main_params.model_params))
         value_net.change_to_value_net()
+        
         if self.use_gpu:
+            self.policy_net = policy_net.to(main_params.device).double()
             self.value_net = value_net.to(main_params.device).double()
         else:
+            self.policy_net = policy_net
             self.value_net = value_net
-        # value_net.decoder_embedding.weight = nn.Parameter(policy_net.decoder_embedding.weight.clone())
-        self.value_net = value_net
 
         # load parameters if available
         if path_to_policy and path_to_value:
             policy_params = torch.load(path_to_policy)
             self.policy_net.load_state_dict(policy_params)
-
             value_params = torch.load(path_to_value)
             self.value_net.load_state_dict(value_params)
 
         # optimizer
+        # TO DO add value_net
         self.optimizer = optim.Adam(
             self.policy_net.parameters(), weight_decay=self.l2_const)
 
-    def policy_value(src_tensor, dec_input, encoder_output=None):
+    def policy_value(self, src_tensor, dec_input, encoder_output=None):
         """
         input: batch of states (tensor)
                 src_tensor: batch of source sentences 
@@ -172,23 +167,23 @@ class PolicyValueNet():
                         value: batch_size x 1
         """
         # TO DO Reshape to (-1,1)?
-        src_key_padding_mask = (
-            src_tensor == dataset_dict['src_padding_ind']).transpose(0, 1)
+        # src_key_padding_mask = (src_tensor == dataset_dict['src_padding_ind']).transpose(0, 1)
+        src_key_padding_mask = (src_tensor == 1).transpose(0, 1)
         policy_output, encouder_output = self.policy_net.forward(src_tensor, dec_input,
-                                                                 src_key_padding_mask=src_key_padding_mask,
-                                                                 tgt_mask=None, tgt_key_padding_mask=None,
-                                                                 memory_key_padding_mask=src_key_padding_mask,
-                                                                 memory=encoder_output)
+                                         src_key_padding_mask=src_key_padding_mask,
+                                         tgt_mask=None, tgt_key_padding_mask=None,
+                                         memory_key_padding_mask=src_key_padding_mask,
+                                         memory=encoder_output)
         log_act_probs = F.log_softmax(policy_output[-1, :, :], dim=1)
         log_act_probs = np.array(log_act_probs.tolist())
 
         self.value_net.decoder_embedding.weight = nn.Parameter(
-            policy_net.decoder_embedding.weight.clone())
+           self.policy_net.decoder_embedding.weight.clone())
         value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
-                                                              src_key_padding_mask=src_key_padding_mask,
-                                                              tgt_mask=None, tgt_key_padding_mask=None,
-                                                              memory_key_padding_mask=src_key_padding_mask,
-                                                              memory=encoder_output)
+                                          src_key_padding_mask=src_key_padding_mask,
+                                          tgt_mask=None, tgt_key_padding_mask=None,
+                                          memory_key_padding_mask=src_key_padding_mask,
+                                          memory=encoder_output)
         # convert to numpy array
         value_output = torch.sigmoid(value_output.view(1, -1)[0])
         value = np.array(value_output.tolist())

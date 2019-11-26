@@ -21,7 +21,7 @@ class Translation(object):
         src: list of indices (SRC vocab) representing source sentence 
         vocab: target vocabulary (TGT.vocab.itos)
         """
-        self.size = n_avlb
+        self.n_avlb = n_avlb
         self.src = np.array(src)  # list of indices
         self.tgt = np.array(tgt)  # list of indices
         self.output = np.array([2]) # index in the vocab
@@ -32,21 +32,21 @@ class Translation(object):
         # TO DO: policy_value input should be the current decoding state
         # pick highest 200 probability words
         # assume word_probs numpy array
-        # if self.use_gpu == True:
-        src_tensor = Variable(torch.from_numpy(
-            np.array(self.src).reshape(-1, 1))).to(self.policy_value_net.device)
-        dec_input = Variable(torch.from_numpy(
-            np.array(self.output).reshape(-1, 1))).to(self.policy_value_net.device)
-        # else:
-        #     src_tensor = Variable(torch.from_numpy(
-        #         np.array(src).reshape(-1, 1)))
-        #     dec_input = Variable(torch.from_numpy(
-        #         np.array(output).reshape(-1, 1)))
+        if self.policy_value_net.use_gpu == True:
+            src_tensor = Variable(torch.from_numpy(
+                np.array(self.src).reshape(-1, 1))).to(self.policy_value_net.device)
+            dec_input = Variable(torch.from_numpy(
+                np.array(self.output).reshape(-1, 1))).to(self.policy_value_net.device)
+        else:
+            src_tensor = Variable(torch.from_numpy(
+                np.array(self.src).reshape(-1, 1)))
+            dec_input = Variable(torch.from_numpy(
+                np.array(self.output).reshape(-1, 1)))
 
         log_word_probs, value, = self.policy_value_net.policy_value(
             src_tensor, dec_input)
         word_probs = np.exp(log_word_probs)
-        top_ids = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
+        top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
         self.availables = top_ids
         self.last_word_id = BOS_WORD_ID
 
@@ -156,7 +156,7 @@ class Translate(object):
         self.translation.init_state()
         states, mcts_probs, bleus_z = [], [], []
         while True:
-            word_id, word_probs = translator.get_action(self.board,
+            word_id, word_probs = translator.get_action(self.translation,
                                                         temp=temp,
                                                         return_prob=1)
             # store the data

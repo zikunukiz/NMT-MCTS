@@ -126,7 +126,7 @@ class TrainPipeline():
                     mcts_probs_batch,
                     bleu_batch,
                     self.learn_rate*self.lr_multiplier)
-            new_probs, new_v = self.policy_value_net.policy_value(state_batch)
+            new_probs, new_v = self.policy_value_net.policy_value(state_batch[0], state[1])
             kl = np.mean(np.sum(old_probs * (
                     np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)),
                     axis=1)
