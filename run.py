@@ -83,7 +83,7 @@ class TrainPipeline():
                         i+1, self.episode_len))
                 if len(self.data_buffer) > self.batch_size:
                     policy_loss, entropy = self.policy_update()
-                # check the performance of the current model,
+                # TO DO check the performance of the current model,
                 # and save the model params
                 # if (i+1) % self.check_freq == 0:
                 #     print("current self-play batch: {}".format(i+1))
@@ -179,8 +179,8 @@ if __name__ == '__main__':
 
     print(main_params.model_params)
 
-    from policy_net import TransformerModel
-    policy_net = TransformerModel(**(main_params.model_params))
+    # from policy_net import TransformerModel
+    # policy_net = TransformerModel(**(main_params.model_params))
     
     device = main_params.device
 

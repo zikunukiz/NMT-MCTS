@@ -25,6 +25,7 @@ class TreeNode(object):
         self._parent = parent
         self._children = {}  # a map from action to TreeNode
         self._n_visits = 0 # number of times this TreeNode has been visited
+        # TO DO rescale by 0.95 (the aggregate prob from the 200 words)
         self._Q = 0 # the mean value of the next state
         self._u = 0
         self._P = prior_p
@@ -119,7 +120,9 @@ class MCTS(object):
             action, node = node.select(self._c_puct)
             state.do_move(action)
 
-        # Check for end of translation
+        # Check for end of translation 
+        # TO DO: when testing, do not give bleu score when EOS, 
+        # but use value network prediction (estimation of bleu)
         end, bleu = state.translation_end()
         if not end:
             node.expand(action_probs)

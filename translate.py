@@ -152,7 +152,7 @@ class Translate(object):
 
     def start_train_translate(self, translator, is_shown=0, temp=1e-3):
         """ start a translation using a MCTS player, reuse the search tree,
-                and store the translation data: (state, mcts_probs, z) for training
+            and store the translation data: (state, mcts_probs, z) for training
         """
         self.translation.init_state()
         states, mcts_probs, bleus_z = [], [], []
