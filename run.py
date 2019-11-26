@@ -4,10 +4,11 @@
 """
 
 from __future__ import print_function
-from state import Translate, Translator
+from translate import Translate, Translation
 from mcts_translator import MCTSTranslator
 from policy_net import PolicyValueNet, MainParams
 from load_data import createIterators
+from collections import deque
 
 # def setup(working_path, policy_pt, value_pt): # from human_play.py
 #     policy_file = working_path + policy_pt
@@ -53,7 +54,7 @@ class TrainPipeline():
         # num of simulations used for the pure mcts, which is used as
         # the opponent to evaluate the trained policy
         # self.pure_mcts_playout_num = 1000
-        if init_model:
+        if init_policy_model and init_value_model:
             # start training from an initial policy-value net
             self.policy_value_net = PolicyValueNet(main_params=init_params,
                                                    path_to_policy=init_policy_model,
@@ -170,7 +171,7 @@ if __name__ == '__main__':
     dataset_dict = createIterators(batch_size, working_path + 'iwsltTokenizedData/')
     
     # English vocabulary
-    eng_vocab = datasetDict['TGT'].vocab.itos
+    eng_vocab = dataset_dict['TGT'].vocab.itos
     src_vocab_size = len(dataset_dict['SRC'].vocab.itos)
     tgt_vocab_size = len(eng_vocab)
     main_params = MainParams(dropout=0.2, src_vocab_size=src_vocab_size,
@@ -179,7 +180,7 @@ if __name__ == '__main__':
     device = main_params.device
 
     dataset_type = "train"
-    dataset_iterator = dataset_dict[train + '_iter']
+    dataset_iterator = dataset_dict[dataset_type + '_iter']
 
     policy_file = working_path + policy_pt
     value_file = working_path + value_pt
@@ -188,7 +189,7 @@ if __name__ == '__main__':
         src = vars(batch)['de'].view(-1).tolist()
         tgt = vars(batch)['en'].view(-1).tolist()
 
-        training_pipeline = TrainPipeline(src, tgt, eng_vocab, init_params, 
+        training_pipeline = TrainPipeline(src, tgt, eng_vocab, init_params = main_params, 
                             init_policy_model=policy_file, init_value_model=value_file)
         training_pipeline.run()
         break
