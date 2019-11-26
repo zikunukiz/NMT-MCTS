@@ -10,8 +10,8 @@ import torch
 import sacrebleu
 
 global BOS_WORD_ID, EOS_WORD_ID
-BOS_WORD_ID = '<s>'
-EOS_WORD_ID = '</s>'
+BOS_WORD_ID = 2
+EOS_WORD_ID = 3
 
 
 class Translation(object):
@@ -22,6 +22,7 @@ class Translation(object):
         vocab: target vocabulary (TGT.vocab.itos)
         """
         self.n_avlb = n_avlb
+        self.vocab = vocab
         self.src = np.array(src)  # list of indices
         self.tgt = np.array(tgt)  # list of indices
         self.output = np.array([2]) # index in the vocab
@@ -55,7 +56,7 @@ class Translation(object):
         return self.src, self.output
 
     def select_next_word(self, word_id):
-        return vocab[word_id]
+        return self.vocab[word_id]
 
     def do_move(self, word_id):  # can change name to choose_word
         # word_id is the index in the vocab
@@ -63,15 +64,15 @@ class Translation(object):
         # add word as new input
         word_probs = self.policy_value_net.policy_value()
         top_ind = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
-        self.availables = vocab[top_ind]
+        self.availables = self.vocab[top_ind]
         self.last_word_id = word_id
         self.output.append(word_id)
 
     def translation_end(self):
         """Check whether the translation is ended or not"""
-        prediction = self.output.to_list()
-        reference = self.tgt.to_list()
-        if vocab[last_word_id] == EOS_WORD:
+        prediction = self.output.tolist()
+        reference = self.tgt.tolist()
+        if self.output[-1] == EOS_WORD_ID:
             bleu = sacrebleu.sentence_bleu(
                 reference, prediction, smooth_method='exp')
             return True, bleu

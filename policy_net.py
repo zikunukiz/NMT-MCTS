@@ -203,7 +203,7 @@ class PolicyValueNet():
                 np.array(src).reshape(-1, 1))).to(self.device)
             output_tensor = Variable(torch.from_numpy(
                 np.array(output).reshape(-1, 1))).to(self.device)
-            log_act_probs, value = policy_value(
+            log_act_probs, value = self.policy_value(
                 src_tensor, output_tensor, None)
             act_probs = np.exp(log_act_probs)
 
@@ -212,10 +212,16 @@ class PolicyValueNet():
                 np.array(src).reshape(-1, 1)))
             output_tensor = Variable(torch.from_numpy(
                 np.array(output).reshape(-1, 1)))
-            act_probs, value = policy_value(src_tensor, output_tensor, None)
+            act_probs, value = self.policy_value(src_tensor, output_tensor, None)
             act_probs = np.exp(log_act_probs)
 
-        act_probs = zip(legal_positions, act_probs[legal_positions])
+        act_probs = act_probs[0]
+        legal_positions = legal_positions[0]
+        
+        act_probs = zip(legal_positions.tolist(), act_probs[legal_positions].tolist())
+        value = value[0].tolist()
+        print(act_probs[legal_positions].tolist())
+        print(act_probs, value)
 
         return act_probs, value
 
@@ -240,7 +246,7 @@ class PolicyValueNet():
         set_learning_rate(self.optimizer, lr)
 
         # forward pass
-        log_act_probs, value = self.policy_net.policy_value(
+        log_act_probs, value = self.policy_value(
             state_batch[0], state_batch[1])
 
         if self.use_gpu:

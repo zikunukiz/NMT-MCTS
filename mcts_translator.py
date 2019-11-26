@@ -172,7 +172,7 @@ class MCTSTranslator(object):
     def get_action(self, translation, temp=1e-3, return_prob=0):
         available_words = translation.availables
         # the pi vector returned by MCTS as in the alphaGo Zero paper
-        word_probs = np.zeros(translation.size)
+        word_probs = np.zeros(translation.n_avlb)
         if len(available_words) > 0:
             acts, probs = self.mcts.get_move_probs(translation, temp)
             word_probs[list(acts)] = probs
