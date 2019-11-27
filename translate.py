@@ -85,11 +85,16 @@ class Translation(object):
     def translation_end(self):
         """Check whether the translation is ended or not"""
         if self.output[-1] == EOS_WORD_ID:
-            prediction = self.fix_sentence(self.vocab[self.output].tolist()[0])
-            reference = self.fix_sentence(self.vocab[self.tgt].tolist()[0])
+            predict_tokens = self.vocab[self.tgt].tolist()
+            ref_tokens = self.vocab[self.output].tolist()
+            prediction_list = self.fix_sentence(predict_tokens)
+            reference_list = self.fix_sentence(ref_tokens)
+            prediction = ' '.join(word for word in prediction_list)
+            reference = ' '.join(word for word in reference_list)
             print("reference: {}".format(reference))
             print("prediction: {}".format(prediction))
-            bleu = sacrebleu.corpus_bleu([prediction], [[reference]], smooth_method='exp')
+            bleu = sacrebleu.corpus_bleu([prediction], [[reference]], smooth_method='exp').score
+            print("BLEU: {}".format(bleu))
             return True, bleu # TO DO return value output if end
         else:
             return False, -1

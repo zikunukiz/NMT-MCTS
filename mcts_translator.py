@@ -91,7 +91,7 @@ class TreeNode(object):
 class MCTS(object):
     """An implementation of Monte Carlo Tree Search."""
 
-    def __init__(self, policy_value_net, c_puct=5, n_playout=200):
+    def __init__(self, policy_value_net, c_puct=5, n_playout=2000):
         """
         policy_value_fn: a function that takes in the state (i.e. input sentence and previous 
             translated words) and outputs a list of (action, probability) tuples and also 
@@ -133,7 +133,6 @@ class MCTS(object):
         else:
             ## for end state，return the "true" leaf_value (BLEU score)
             leaf_value = bleu
-            print("bleu: {}".format(state.output))
         # Update value and visit count of nodes in this traversal
         node.update_recursive(leaf_value)
 

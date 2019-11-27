@@ -10,25 +10,6 @@ from policy_net import PolicyValueNet, MainParams
 from load_data import createIterators
 from collections import deque
 
-# def setup(working_path, policy_pt, value_pt): # from human_play.py
-#     policy_file = working_path + policy_pt
-#     value_file = working_path + value_pt
-
-#     try:
-# 	    best_policy = PolicyValueNet(main_params, policy_file, value_file)
-# 	    vocab = vocab
-# 	    # Need SRC? pass in data_iterator??
-# 	    translation = Translation(n_avlb, vocab, best_policy)
-# 	    translate = Translate(translation)
-# 	    mcts_translator = MCTSTranslator(best_policy.policy_value_fn,
-# 	                             c_puct=5,
-# 	                             n_playout=400)  # set larger n_playout for better performance
-
-# 	    # set start_player=0 for human first
-#     	translate.start_translate(mcts_translator, is_shown=0)
-# 	except KeyboardInterrupt:
-#     	print('\n\rquit')
-
 
 class TrainPipeline():
     def __init__(self, src, tgt, vocab, init_params, 
@@ -39,7 +20,7 @@ class TrainPipeline():
         self.learn_rate = 2e-3
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
-        self.n_playout = 400  # num of simulations for each move
+        self.n_playout = 500  # num of simulations for each move
         self.c_puct = 5
         self.buffer_size = 10000
         self.batch_size = 512  # mini-batch size for training
@@ -62,7 +43,7 @@ class TrainPipeline():
         else:
             # start training from a new policy-value net
             self.policy_value_net = PolicyValueNet(main_params=init_params)
-        self.mcts_translator = MCTSTranslator(self.policy_value_net.policy_value_fn,
+        self.mcts_translator = MCTSTranslator(self.policy_value_net,
                                       c_puct=self.c_puct,
                                       n_playout=self.n_playout,
                                       is_selfplay=1)
@@ -71,7 +52,6 @@ class TrainPipeline():
         self.src = src
         self.tgt = tgt
         self.vocab = vocab
-        # pass in policy_value function? instead of the network?
         self.translation = Translation(self.src, self.tgt, self.n_avlb, self.vocab, self.policy_value_net)
         self.translate = Translate(self.translation)
 
@@ -127,7 +107,7 @@ class TrainPipeline():
                     mcts_probs_batch,
                     bleu_batch,
                     self.learn_rate*self.lr_multiplier)
-            new_probs, new_v = self.policy_value_net.policy_value(state_batch[0], state[1])
+            new_probs, new_v = self.policy_value_net.policy_value(state_batch)
             kl = np.mean(np.sum(old_probs * (
                     np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)),
                     axis=1)
@@ -160,17 +140,15 @@ class TrainPipeline():
                         explained_var_new))
         return loss, entropy
 
-
 if __name__ == '__main__':
     # create iterator to loop over batch data
-    
     working_path = ''
-    policy_pt = 'savedModels/policy_supervised_RLTrained.pt'
-    value_pt = 'savedModels/value_supervised_RLTrained.pt'
+    policy_pt = 'policy_supervised_RLTrained.pt'
+    value_pt = 'value_supervised_RLTrained.pt'
 
     batch_size = 1
     dataset_dict = createIterators(batch_size, working_path + 'iwsltTokenizedData/')
-    
+
     # English vocabulary
     eng_vocab = dataset_dict['TGT'].vocab.itos
     src_vocab_size = len(dataset_dict['SRC'].vocab.itos)
@@ -178,26 +156,24 @@ if __name__ == '__main__':
     main_params = MainParams(dropout=0.2, src_vocab_size=src_vocab_size,
                   tgt_vocab_size=tgt_vocab_size, batch_size=batch_size)
 
-    print(main_params.model_params)
-
-    # from policy_net import TransformerModel
-    # policy_net = TransformerModel(**(main_params.model_params))
-    
-    device = main_params.device
-
     dataset_type = "train"
     dataset_iterator = dataset_dict[dataset_type + '_iter']
 
     policy_file = working_path + policy_pt
     value_file = working_path + value_pt
-    
-    for batch in dataset_iterator:
-        src = vars(batch)['de'].view(-1).tolist()
-        tgt = vars(batch)['en'].view(-1).tolist()
 
-        training_pipeline = TrainPipeline(src, tgt, eng_vocab, init_params = main_params, 
-                            init_policy_model=policy_file, init_value_model=value_file)
-        training_pipeline.run()
-        break
+    for batch in dataset_iterator:
+      src = vars(batch)['de'].view(-1).tolist()
+      tgt = vars(batch)['en'].view(-1).tolist()
+
+      src_tensor = vars(batch)['de']
+
+      # print((src_tensor == dataset_dict['src_padding_ind']).transpose(0, 1))
+      # break
+
+      training_pipeline = TrainPipeline(src, tgt, eng_vocab, init_params = main_params, 
+                          init_policy_model=policy_file, init_value_model=value_file)
+      training_pipeline.run()
+      break
 
 
