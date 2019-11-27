@@ -112,7 +112,19 @@ class MCTS(object):
         node = self._root
         # Evaluate the leaf using a policy value network which outputs 
         # a list of (action, probability) tuples p and a score v in [0, 1]
-        action_probs, leaf_value = self._policy.policy_value(state)
+
+        src, output = state.current_state()
+
+        if self._policy.use_gpu == True:
+            src_tensor = Variable(torch.from_numpy(
+                np.array(src).reshape(-1, 1))).to(self._policy.device)
+            dec_input = Variable(torch.from_numpy(
+                np.array(output).reshape(-1, 1))).to(self._policy.device)
+
+        # reuse encoder_output
+        action_probs, leaf_value, encoder_output = self._policy.policy_value(
+                    src_tensor, dec_input, state.encoder_output)
+        
         while(1):
             if node.is_leaf():
                 break
@@ -140,6 +152,8 @@ class MCTS(object):
         temp: temperature parameter in (0, 1] controls the level of exploration
         """
         for n in range(self._n_playout):
+            # bug: RuntimeError: Only Tensors created explicitly by the user 
+            # (graph leaves) support the deepcopy protocol at the moment
             state_copy = copy.deepcopy(state)
             self._playout(state_copy)
 
@@ -178,7 +192,7 @@ class MCTSTranslator(object):
         # TO DO renormalize visit counts (since we only look at 200 top words)
         word_probs = np.zeros(translation.n_avlb) 
         if len(available_words) > 0:
-            acts, probs = self.mcts.get_move_probs(translation, temp)
+            acts, probs = self.mcts.get_move_probs(translation, temp) # only 200 probs?
             word_probs[list(acts)] = probs
 
             # with the default temp=1e-3, it is almost equivalent
