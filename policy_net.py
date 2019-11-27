@@ -169,7 +169,7 @@ class PolicyValueNet():
         # TO DO Reshape to (-1,1)?
         # src_key_padding_mask = (src_tensor == dataset_dict['src_padding_ind']).transpose(0, 1)
         src_key_padding_mask = (src_tensor == 1).transpose(0, 1)
-        policy_output, encoder_output = self.policy_net.forward(src_tensor, dec_input,
+        policy_output, memory = self.policy_net.forward(src_tensor, dec_input,
                                          src_key_padding_mask=src_key_padding_mask,
                                          tgt_mask=None, tgt_key_padding_mask=None,
                                          memory_key_padding_mask=src_key_padding_mask,
@@ -179,15 +179,21 @@ class PolicyValueNet():
 
         self.value_net.decoder_embedding.weight = nn.Parameter(
            self.policy_net.decoder_embedding.weight.clone())
-        value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
+        if encoder_output is None: # use memory produced by policy
+            value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
                                           src_key_padding_mask=src_key_padding_mask,
                                           tgt_mask=None, tgt_key_padding_mask=None,
                                           memory_key_padding_mask=src_key_padding_mask,
-                                          memory=encoder_output)
-        # convert to numpy array
+                                          memory=memory)
+        else: # use given encoder_output
+            value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
+                                          src_key_padding_mask=src_key_padding_mask,
+                                          tgt_mask=None, tgt_key_padding_mask=None,
+                                          memory_key_padding_mask=src_key_padding_mask,
+                                          memory=encoder_output)# convert to numpy array
         value_output = torch.sigmoid(value_output.view(1, -1)[0])
         value = np.array(value_output.tolist())
-        return log_act_probs, value # return encoder_output as well
+        return log_act_probs, value, memory # return encoder_output as well
 
     def policy_value_fn(self, translation):
         """
@@ -217,11 +223,8 @@ class PolicyValueNet():
 
         act_probs = act_probs[0]
         legal_positions = legal_positions[0]
-        
         act_probs = zip(legal_positions.tolist(), act_probs[legal_positions].tolist())
         value = value[0].tolist()
-        print(act_probs[legal_positions].tolist())
-        print(act_probs, value)
 
         return act_probs, value
 
@@ -229,8 +232,8 @@ class PolicyValueNet():
         """perform a training step"""
         # wrap in Variable
         if self.use_gpu:
-            state_batch = Variable(torch.FloatTensor(state_batch)).to(
-                self.device)  # (src, output) tuples
+            state_batch = Variable(
+                torch.FloatTensor(state_batch)).to(self.device)  # (src, output) tuples
             mcts_probs = Variable(
                 torch.FloatTensor(mcts_probs)).to(self.device)
             bleu_batch = Variable(

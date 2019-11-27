@@ -112,7 +112,7 @@ class MCTS(object):
         node = self._root
         # Evaluate the leaf using a policy value network which outputs 
         # a list of (action, probability) tuples p and a score v in [0, 1]
-        action_probs, leaf_value = self._policy(state)
+        action_probs, leaf_value = self._policy.policy_value(state)
         while(1):
             if node.is_leaf():
                 break
@@ -175,7 +175,8 @@ class MCTSTranslator(object):
     def get_action(self, translation, temp=1e-3, return_prob=0):
         available_words = translation.availables
         # the pi vector returned by MCTS as in the alphaGo Zero paper
-        word_probs = np.zeros(translation.n_avlb)
+        # TO DO renormalize visit counts (since we only look at 200 top words)
+        word_probs = np.zeros(translation.n_avlb) 
         if len(available_words) > 0:
             acts, probs = self.mcts.get_move_probs(translation, temp)
             word_probs[list(acts)] = probs

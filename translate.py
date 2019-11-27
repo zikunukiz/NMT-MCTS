@@ -17,7 +17,7 @@ EOS_WORD_ID = 3
 class Translation(object):
     def __init__(self, src, tgt, n_avlb, vocab, policy_value_fn, **kwargs,):
         """
-                n_avlb: number of available word to choose at each step
+        n_avlb: number of available word to choose at each step
         src: list of indices (SRC vocab) representing source sentence 
         vocab: target vocabulary (TGT.vocab.itos)
         """
@@ -44,10 +44,10 @@ class Translation(object):
             dec_input = Variable(torch.from_numpy(
                 np.array(self.output).reshape(-1, 1)))
 
-        log_word_probs, value, = self.policy_value_net.policy_value(
-            src_tensor, dec_input)
+        log_word_probs, value, encoder_output = self.policy_value_net.policy_value(src_tensor, dec_input)
         word_probs = np.exp(log_word_probs)
         top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
+        self.encoder_output = encoder_output # store for later tranlstion output
         self.availables = top_ids
         self.last_word_id = BOS_WORD_ID
 
@@ -62,11 +62,25 @@ class Translation(object):
         # word_id is the index in the vocab
         # TO DO: normalize other probabilities?
         # add word as new input
-        word_probs = self.policy_value_net.policy_value()
-        top_ind = np.argpartition(word_probs, -n_avlb)[-n_avlb:]
-        self.availables = self.vocab[top_ind]
-        self.last_word_id = word_id
-        self.output.append(word_id)
+        if self.policy_value_net.use_gpu == True:
+            src_tensor = Variable(torch.from_numpy(
+                    np.array(self.src).reshape(-1, 1))).to(self.policy_value_net.device)
+            dec_input = Variable(torch.from_numpy(
+                    np.array(self.output).reshape(-1, 1))).to(self.policy_value_net.device)
+        else:
+            src_tensor = Variable(torch.from_numpy(
+                    np.array(self.src).reshape(-1, 1)))
+            dec_input = Variable(torch.from_numpy(
+                    np.array(self.output).reshape(-1, 1)))
+        # encoder_output.requires_grad == True -> cannot create deepcopy?
+        # should encoder_ouput be stored as numpy like src and output??   
+        log_word_probs, value, encoder_output = self.policy_value_net.policy_value(
+                src_tensor, dec_input, self.encoder_output) # reusing encoder_output
+        word_probs = np.exp(log_word_probs)
+        top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
+        next_id = np.argpartition(word_probs, -1)[-1:]
+        self.availables = top_ids
+        self.output = np.append(self.output, next_id)
 
     def translation_end(self):
         """Check whether the translation is ended or not"""
@@ -75,7 +89,7 @@ class Translation(object):
         if self.output[-1] == EOS_WORD_ID:
             bleu = sacrebleu.sentence_bleu(
                 reference, prediction, smooth_method='exp')
-            return True, bleu
+            return True, bleu # TO DO return value output if end
         else:
             return False, -1
 
@@ -153,6 +167,9 @@ class Translate(object):
     def start_train_translate(self, translator, is_shown=0, temp=1e-3):
         """ start a translation using a MCTS player, reuse the search tree,
             and store the translation data: (state, mcts_probs, z) for training
+            state: list of current states (src, output) of tranlations
+            mcts_probs: list of probs
+            bleus_z: list of bleu scores
         """
         self.translation.init_state()
         states, mcts_probs, bleus_z = [], [], []
