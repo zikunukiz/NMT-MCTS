@@ -175,7 +175,7 @@ class PolicyValueNet():
                                          memory_key_padding_mask=src_key_padding_mask,
                                          memory=encoder_output)
         log_act_probs = F.log_softmax(policy_output[-1, :, :], dim=1)
-        log_act_probs = np.array(log_act_probs.tolist())
+        log_act_probs = np.array(log_act_probs.tolist()[0])
 
         self.value_net.decoder_embedding.weight = nn.Parameter(
            self.policy_net.decoder_embedding.weight.clone())
@@ -191,6 +191,7 @@ class PolicyValueNet():
                                           tgt_mask=None, tgt_key_padding_mask=None,
                                           memory_key_padding_mask=src_key_padding_mask,
                                           memory=encoder_output)# convert to numpy array
+        print(value_output)
         value_output = torch.sigmoid(value_output.view(1, -1)[0])
         value = np.array(value_output.tolist())
         return log_act_probs, value, memory # return encoder_output as well
@@ -214,10 +215,10 @@ class PolicyValueNet():
                 src_tensor, output_tensor, encoder_output)
             act_probs = np.exp(log_act_probs)
 
-        act_probs = act_probs[0]
-        legal_positions = legal_positions[0]
+        # act_probs = act_probs[0]
+        # legal_positions = legal_positions[0]
         act_probs = zip(legal_positions.tolist(), act_probs[legal_positions].tolist())
-        value = value[0].tolist()
+        # value = value[0].tolist()
 
         return act_probs, value
 

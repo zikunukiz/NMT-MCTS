@@ -79,7 +79,10 @@ class Translation(object):
         # should encoder_ouput be stored as numpy like src and output??
         log_word_probs, value, encoder_output = self.policy_value_net.policy_value(
                 src_tensor, dec_input, self.encoder_output) # reusing encoder_output
-        word_probs = np.exp(log_word_probs)[0]
+        word_probs = np.exp(log_word_probs)
+        print("init_state")
+        print(word_probs)
+
         top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
         next_id = np.argpartition(word_probs, -1)[-1:]
         self.availables = top_ids
@@ -87,7 +90,7 @@ class Translation(object):
 
     def translation_end(self):
         """Check whether the translation is ended or not"""
-        print(self.output.tolist()[-1])
+        # print(self.output.tolist()[-1])
         if self.output.tolist()[-1] == EOS_WORD_ID:
             # revert tokenization back to strings
             predict_tokens = self.vocab[self.output].tolist()
@@ -157,6 +160,9 @@ class Translate(object):
             # choose a word (perform a move)
             self.translation.do_move(word_id)
             end, bleu = self.translation.translation_end()
+            print("states collected: ".format(states))
+            print("mcts_probs collected: ".format(mcts_probs))
+            print("bleus_z collected: ".format(bleus_z))
             if end:
                 bleus_z.append(bleu)
                 # reset MCTS root node
