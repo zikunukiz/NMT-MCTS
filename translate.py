@@ -28,6 +28,9 @@ class Translation(object):
         self.output = np.array([2]) # index in the vocab
         self.policy_value_net = policy_value_fn
         self.device = policy_value_fn.device
+        # TODO: specifiy which dataset we are running on
+        # If it is test set -> need to modify translation_end()
+        # self.dataset = dataset 
 
     def init_state(self):
         # TO DO: policy_value input should be the current decoding state
@@ -84,15 +87,18 @@ class Translation(object):
 
     def translation_end(self):
         """Check whether the translation is ended or not"""
-        if self.output[-1] == EOS_WORD_ID:
-            predict_tokens = self.vocab[self.tgt].tolist()
-            ref_tokens = self.vocab[self.output].tolist()
+        print(self.output.tolist()[-1])
+        if self.output.tolist()[-1] == EOS_WORD_ID:
+            # revert tokenization back to strings
+            predict_tokens = self.vocab[self.output].tolist()
+            ref_tokens = self.vocab[self.tgt].tolist()
             prediction_list = self.fix_sentence(predict_tokens)
             reference_list = self.fix_sentence(ref_tokens)
             prediction = ' '.join(word for word in prediction_list)
             reference = ' '.join(word for word in reference_list)
             print("reference: {}".format(reference))
             print("prediction: {}".format(prediction))
+            # compute sacre BLEU score adjusted for length
             bleu = sacrebleu.corpus_bleu([prediction], [[reference]], smooth_method='exp').score
             print("BLEU: {}".format(bleu))
             return True, bleu # TO DO return value output if end

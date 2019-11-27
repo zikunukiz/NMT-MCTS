@@ -118,7 +118,7 @@ class MCTS(object):
 
         while(1):
             print("simulated output: {}".format(state.output))
-            if node.is_leaf():
+            if node.is_leaf() or state.output.tolist()[-1] == 3:
                 break
             # Greedily select next word
             action, node = node.select(self._c_puct)
@@ -145,12 +145,13 @@ class MCTS(object):
         for n in range(self._n_playout):
             # bug: RuntimeError: Only Tensors created explicitly by the user 
             # (graph leaves) support the deepcopy protocol at the moment
-            print("playout - {}".format(n))
+            print("simulation - {}".format(n))
             print("source: {}".format(state.src))
             state_copy = copy.deepcopy(state)
             self._playout(state_copy)
-
+        print("simluations finished")
         # calc the move probabilities based on visit counts at the root node
+        # TODO: normalize _n_visits
         act_visits = [(act, node._n_visits)
                       for act, node in self._root._children.items()]
         acts, visits = zip(*act_visits)
@@ -183,18 +184,17 @@ class MCTSTranslator(object):
         available_words = translation.availables
         # the pi vector returned by MCTS as in the alphaGo Zero paper
         # TO DO renormalize visit counts (since we only look at 200 top words)
-        word_probs = np.zeros(translation.n_avlb) 
+        word_probs = np.zeros(len(translation.vocab))
         if len(available_words) > 0:
-            acts, probs = self.mcts.get_move_probs(translation, temp) # only 200 probs?
+            acts, probs = self.mcts.get_move_probs(translation, temp) # ouput vocab size
             word_probs[list(acts)] = probs
-
             # with the default temp=1e-3, it is almost equivalent
             # to choosing the move with the highest prob
             word_id = np.random.choice(acts, p=probs)
             # reset the root node
             self.mcts.update_with_move(-1)
             word = translation.select_next_word(word_id)
-            print("system chose: %d\n" % (word))
+            print("system chose word: {}".format(word))
 
             if return_prob:
                 return word_id, word_probs
