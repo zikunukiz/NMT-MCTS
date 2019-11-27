@@ -117,12 +117,12 @@ class MCTS(object):
         action_probs, leaf_value = self._policy.policy_value_fn(state)
 
         while(1):
+            print("simulated output: {}".format(state.output))
             if node.is_leaf():
                 break
             # Greedily select next word
             action, node = node.select(self._c_puct)
             state.do_move(action)
-            print("simulated output: {}".format(state.output))
 
         # Check for end of translation 
         # TO DO: when testing, do not give bleu score when EOS, 
@@ -133,7 +133,7 @@ class MCTS(object):
         else:
             ## for end state，return the "true" leaf_value (BLEU score)
             leaf_value = bleu
-
+            print("bleu: {}".format(state.output))
         # Update value and visit count of nodes in this traversal
         node.update_recursive(leaf_value)
 
@@ -150,7 +150,6 @@ class MCTS(object):
             print("source: {}".format(state.src))
             state_copy = copy.deepcopy(state)
             self._playout(state_copy)
-            
 
         # calc the move probabilities based on visit counts at the root node
         act_visits = [(act, node._n_visits)

@@ -22,7 +22,7 @@ class Translation(object):
         vocab: target vocabulary (TGT.vocab.itos)
         """
         self.n_avlb = n_avlb
-        self.vocab = vocab
+        self.vocab = np.array(vocab)
         self.src = np.array(src)  # list of indices
         self.tgt = np.array(tgt)  # list of indices
         self.output = np.array([2]) # index in the vocab
@@ -84,40 +84,19 @@ class Translation(object):
 
     def translation_end(self):
         """Check whether the translation is ended or not"""
-        prediction = self.output.tolist()
-        reference = self.tgt.tolist()
         if self.output[-1] == EOS_WORD_ID:
-            bleu = sacrebleu.sentence_bleu(
-                reference, prediction, smooth_method='exp')
+            prediction = self.fix_sentence(self.vocab[self.output].tolist()[0])
+            reference = self.fix_sentence(self.vocab[self.tgt].tolist()[0])
+            print("reference: {}".format(reference))
+            print("prediction: {}".format(prediction))
+            bleu = sacrebleu.corpus_bleu([prediction], [[reference]], smooth_method='exp')
             return True, bleu # TO DO return value output if end
         else:
             return False, -1
 
-    # def get_bleu_scores(trg_tensor, pred_tensor, vocab):
-    #     bleus_per_sentence = torch.zeros(trg_tensor.shape[1],requires_grad=False)
-    #     for col in range(trg_tensor.shape[1]): #each column contains sentence
-           #      true_sentence = [vocab[i] for i in trg_tensor[:,col] if vocab[i] != BLANK_WORD][1:-1]
-           #      pred_sentence = [vocab[i] for i in pred_tensor[:,col] if vocab[i] != BLANK_WORD]
-           #      #now also need to stop pred_sentence after first EOS_WORD outputted
-           #      #also don't want to use BOS chars
-           #      ind_first_eos = 0
-           #      for tok in pred_sentence:
-           #        if tok == EOS_WORD:
-           #          break
-           #        ind_first_eos += 1
-           #      if ind_first_eos != 0:
-           #        pred_sentence = pred_sentence[1:ind_first_eos] #this gets rid of EOS_WORD
-           #      #now undo some of the weird tokenization
-           #      pred_sentence = fix_sentence(pred_sentence)
-           #      true_sentence = fix_sentence(true_sentence)
-
-           #      # sacrebleu to account for sentence length
-           #      score = sacrebleu.sentence_bleu(pred_sentence, true_sentence, smooth_method='exp').score
-           #      bleus_per_sentence[col] = score/100.0
-    #     return bleus_per_sentence
-
-    def fix_sentence(sentence):
+    def fix_sentence(self, sentence):
         """get original sentences from tokenizations"""
+        sentence = sentence[1:-2]
         new_sentence = []
         cur_word = ''
         for p in sentence:
@@ -138,7 +117,6 @@ class Translation(object):
                     new_sentence.append(p)
         return new_sentence
 
-
 class Translate(object):
     """game server"""
 
@@ -147,22 +125,6 @@ class Translate(object):
 
     def graphic(translation):
         pass
-
-    def start_translate(self, translator, is_shown=1):
-        """start translation"""
-        translator = translator
-        if is_shown:
-            self.graphic(self.vocab)
-        while True:
-            word_id = translator.get_action(self.vocab)
-            self.vocab.do_move(word_id)
-            if is_shown:
-                self.graphic(self.translation)
-            end = self.translation.translation_end()
-            if end:
-                if is_shown:
-                    print("Translation end. The translation is {}".format())
-                return translation
 
     def start_train_translate(self, translator, is_shown=0, temp=1e-3):
         """ start a translation using a MCTS player, reuse the search tree,
