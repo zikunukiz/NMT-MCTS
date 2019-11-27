@@ -47,7 +47,7 @@ class Translation(object):
         log_word_probs, value, encoder_output = self.policy_value_net.policy_value(src_tensor, dec_input)
         word_probs = np.exp(log_word_probs)
         top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
-        self.encoder_output = encoder_output # store for later tranlstion output
+        self.encoder_output = encoder_output.clone().detach() # store for later tranlstion output
         self.availables = top_ids
         self.last_word_id = BOS_WORD_ID
 

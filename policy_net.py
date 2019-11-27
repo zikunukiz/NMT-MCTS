@@ -193,7 +193,7 @@ class PolicyValueNet():
                                           memory=encoder_output)# convert to numpy array
         value_output = torch.sigmoid(value_output.view(1, -1)[0])
         value = np.array(value_output.tolist())
-        return log_act_probs, value, memory # return encoder_output as well
+        return log_act_probs[0], value, memory # return encoder_output as well
 
     def policy_value_fn(self, translation):
         """
@@ -218,7 +218,7 @@ class PolicyValueNet():
                 np.array(src).reshape(-1, 1)))
             output_tensor = Variable(torch.from_numpy(
                 np.array(output).reshape(-1, 1)))
-            act_probs, value = self.policy_value(src_tensor, output_tensor, None)
+            log_act_probs, value = self.policy_value(src_tensor, output_tensor, None)
             act_probs = np.exp(log_act_probs)
 
         act_probs = act_probs[0]

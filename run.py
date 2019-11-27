@@ -62,7 +62,7 @@ class TrainPipeline():
         else:
             # start training from a new policy-value net
             self.policy_value_net = PolicyValueNet(main_params=init_params)
-        self.mcts_translator = MCTSTranslator(self.policy_value_net.policy_value_fn,
+        self.mcts_translator = MCTSTranslator(self.policy_value_net,
                                       c_puct=self.c_puct,
                                       n_playout=self.n_playout,
                                       is_selfplay=1)
@@ -71,6 +71,7 @@ class TrainPipeline():
         self.src = src
         self.tgt = tgt
         self.vocab = vocab
+        # pass in policy_value function? instead of the network?
         self.translation = Translation(self.src, self.tgt, self.n_avlb, self.vocab, self.policy_value_net)
         self.translate = Translate(self.translation)
 

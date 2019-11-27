@@ -8,6 +8,8 @@ Code Base: https://github.com/junxiaosong/AlphaZero_Gomoku/blob/master/mcts_alph
 
 import numpy as np
 import copy
+import torch
+from torch.autograd import Variable
 
 def softmax(x):
     probs = np.exp(x - np.max(x))
@@ -89,7 +91,7 @@ class TreeNode(object):
 class MCTS(object):
     """An implementation of Monte Carlo Tree Search."""
 
-    def __init__(self, policy_value_fn, c_puct=5, n_playout=10000):
+    def __init__(self, policy_value_net, c_puct=5, n_playout=10000):
         """
         policy_value_fn: a function that takes in the state (i.e. input sentence and previous 
             translated words) and outputs a list of (action, probability) tuples and also 
@@ -100,7 +102,7 @@ class MCTS(object):
             relying on the prior more.
         """
         self._root = TreeNode(None, 1.0)
-        self._policy = policy_value_fn
+        self._policy = policy_value_net
         self._c_puct = c_puct
         self._n_playout = n_playout
 
@@ -115,16 +117,18 @@ class MCTS(object):
 
         src, output = state.current_state()
 
-        if self._policy.use_gpu == True:
-            src_tensor = Variable(torch.from_numpy(
-                np.array(src).reshape(-1, 1))).to(self._policy.device)
-            dec_input = Variable(torch.from_numpy(
-                np.array(output).reshape(-1, 1))).to(self._policy.device)
+        # assume there is GPU
+        src_tensor = Variable(torch.from_numpy(
+            np.array(src).reshape(-1, 1))).to(self._policy.device)
+        dec_input = Variable(torch.from_numpy(
+            np.array(output).reshape(-1, 1))).to(self._policy.device)
 
         # reuse encoder_output
-        action_probs, leaf_value, encoder_output = self._policy.policy_value(
+        log_action_probs, leaf_value, _ = self._policy.policy_value(
                     src_tensor, dec_input, state.encoder_output)
         
+        action_probs = np.exp(log_action_probs)
+
         while(1):
             if node.is_leaf():
                 break
@@ -182,9 +186,9 @@ class MCTS(object):
 class MCTSTranslator(object):
     """AI translator based on MCTS"""
 
-    def __init__(self, policy_value_fn,
+    def __init__(self, policy_value_net,
                  c_puct=5, n_playout=2000, is_selfplay=0):
-        self.mcts = MCTS(policy_value_fn, c_puct, n_playout)
+        self.mcts = MCTS(policy_value_net, c_puct, n_playout)
 
     def get_action(self, translation, temp=1e-3, return_prob=0):
         available_words = translation.availables
