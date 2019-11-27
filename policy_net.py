@@ -76,7 +76,7 @@ class TransformerModel(nn.Module):
 
     def change_to_value_net(self):
         self.linear = Linear(self.d_model, 1)  # now doing regression
-        torch.nn.init.xavier_uniform(
+        torch.nn.init.xavier_uniform_(
             self.linear.weight)  # initialize new weights
 
     '''
@@ -193,7 +193,7 @@ class PolicyValueNet():
                                           memory=encoder_output)# convert to numpy array
         value_output = torch.sigmoid(value_output.view(1, -1)[0])
         value = np.array(value_output.tolist())
-        return log_act_probs[0], value, memory # return encoder_output as well
+        return log_act_probs, value, memory # return encoder_output as well
 
     def policy_value_fn(self, translation):
         """
@@ -203,22 +203,15 @@ class PolicyValueNet():
         """
         legal_positions = translation.availables
         (src, output) = translation.current_state()
+        encoder_output = translation.encoder_output
 
         if self.use_gpu:
             src_tensor = Variable(torch.from_numpy(
                 np.array(src).reshape(-1, 1))).to(self.device)
             output_tensor = Variable(torch.from_numpy(
                 np.array(output).reshape(-1, 1))).to(self.device)
-            log_act_probs, value = self.policy_value(
-                src_tensor, output_tensor, None)
-            act_probs = np.exp(log_act_probs)
-
-        else:
-            src_tensor = Variable(torch.from_numpy(
-                np.array(src).reshape(-1, 1)))
-            output_tensor = Variable(torch.from_numpy(
-                np.array(output).reshape(-1, 1)))
-            log_act_probs, value = self.policy_value(src_tensor, output_tensor, None)
+            log_act_probs, value, _ = self.policy_value(
+                src_tensor, output_tensor, encoder_output)
             act_probs = np.exp(log_act_probs)
 
         act_probs = act_probs[0]

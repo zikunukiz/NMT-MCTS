@@ -73,10 +73,10 @@ class Translation(object):
             dec_input = Variable(torch.from_numpy(
                     np.array(self.output).reshape(-1, 1)))
         # encoder_output.requires_grad == True -> cannot create deepcopy?
-        # should encoder_ouput be stored as numpy like src and output??   
+        # should encoder_ouput be stored as numpy like src and output??
         log_word_probs, value, encoder_output = self.policy_value_net.policy_value(
                 src_tensor, dec_input, self.encoder_output) # reusing encoder_output
-        word_probs = np.exp(log_word_probs)
+        word_probs = np.exp(log_word_probs)[0]
         top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
         next_id = np.argpartition(word_probs, -1)[-1:]
         self.availables = top_ids

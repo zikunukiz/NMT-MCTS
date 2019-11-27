@@ -91,7 +91,7 @@ class TreeNode(object):
 class MCTS(object):
     """An implementation of Monte Carlo Tree Search."""
 
-    def __init__(self, policy_value_net, c_puct=5, n_playout=10000):
+    def __init__(self, policy_value_net, c_puct=5, n_playout=200):
         """
         policy_value_fn: a function that takes in the state (i.e. input sentence and previous 
             translated words) and outputs a list of (action, probability) tuples and also 
@@ -114,20 +114,7 @@ class MCTS(object):
         node = self._root
         # Evaluate the leaf using a policy value network which outputs 
         # a list of (action, probability) tuples p and a score v in [0, 1]
-
-        src, output = state.current_state()
-
-        # assume there is GPU
-        src_tensor = Variable(torch.from_numpy(
-            np.array(src).reshape(-1, 1))).to(self._policy.device)
-        dec_input = Variable(torch.from_numpy(
-            np.array(output).reshape(-1, 1))).to(self._policy.device)
-
-        # reuse encoder_output
-        log_action_probs, leaf_value, _ = self._policy.policy_value(
-                    src_tensor, dec_input, state.encoder_output)
-        
-        action_probs = np.exp(log_action_probs)
+        action_probs, leaf_value = self._policy.policy_value_fn(state)
 
         while(1):
             if node.is_leaf():
@@ -135,6 +122,7 @@ class MCTS(object):
             # Greedily select next word
             action, node = node.select(self._c_puct)
             state.do_move(action)
+            print("simulated output: {}".format(state.output))
 
         # Check for end of translation 
         # TO DO: when testing, do not give bleu score when EOS, 
@@ -158,8 +146,11 @@ class MCTS(object):
         for n in range(self._n_playout):
             # bug: RuntimeError: Only Tensors created explicitly by the user 
             # (graph leaves) support the deepcopy protocol at the moment
+            print("playout - {}".format(n))
+            print("source: {}".format(state.src))
             state_copy = copy.deepcopy(state)
             self._playout(state_copy)
+            
 
         # calc the move probabilities based on visit counts at the root node
         act_visits = [(act, node._n_visits)
