@@ -83,7 +83,7 @@ class Translation(object):
             return False, -1
 
     
-    def fix_sentence(sentence,as_str=False):  
+    def fix_sentence(self, sentence,as_str=False):  
         #if as_str==True then join tokens by space unless comma or period
         new_sentence = []
         cur_word = ''
