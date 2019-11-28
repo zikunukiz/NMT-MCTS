@@ -153,9 +153,10 @@ class PolicyValueNet():
             self.value_net.load_state_dict(value_params)
 
         # optimizer
-        # TO DO add value_net
-        self.optimizer = optim.Adam(
+        self.policy_optimizer = optim.Adam(
             self.policy_net.parameters(), weight_decay=self.l2_const)
+        self.value_optimizer = optim.Adam(
+            self.value_net.parameters(), weight_decay=self.l2_const)
 
     def policy_value(self, src_tensor, dec_input, encoder_output=None):
         """
@@ -200,19 +201,20 @@ class PolicyValueNet():
         input: translation
         output: a list of (action, probability) tuples for each available
         action and the score of the translation state
+        restrict to n_avlb words
         """
         legal_positions = translation.availables
         (src, output) = translation.current_state()
         encoder_output = translation.encoder_output
 
         if self.use_gpu:
-            src_tensor = Variable(torch.from_numpy(
-                np.array(src).reshape(-1, 1))).to(self.device)
-            output_tensor = Variable(torch.from_numpy(
-                np.array(output).reshape(-1, 1))).to(self.device)
-            log_act_probs, value, _ = self.policy_value(
-                src_tensor, output_tensor, encoder_output)
-            act_probs = np.exp(log_act_probs)
+            src_tensor = torch.from_numpy(
+                np.array(src).reshape(-1, 1)).to(self.device)
+            output_tensor = torch.from_numpy(
+                np.array(output).reshape(-1, 1)).to(self.device)
+
+        log_act_probs, value, _ = self.policy_value(src_tensor, output_tensor, encoder_output)
+        act_probs = np.exp(log_act_probs)
 
         act_probs = zip(legal_positions.tolist(), act_probs[legal_positions].tolist())
 
@@ -228,10 +230,6 @@ class PolicyValueNet():
                 torch.FloatTensor(mcts_probs)).to(self.device)
             bleu_batch = Variable(
                 torch.FloatTensor(bleu_batch)).to(self.device)
-        else:
-            state_batch = Variable(torch.FloatTensor(state_batch))
-            mcts_probs = Variable(torch.FloatTensor(mcts_probs))
-            bleu_batch = Variable(torch.FloatTensor(bleu_batch))
 
         # zero the parameter gradients
         self.optimizer.zero_grad()
@@ -239,8 +237,7 @@ class PolicyValueNet():
         set_learning_rate(self.optimizer, lr)
 
         # forward pass
-        log_act_probs, value = self.policy_value(
-            state_batch[0], state_batch[1])
+        log_act_probs, value = self.policy_value(state_batch[0], state_batch[1])
 
         if self.use_gpu:
             log_act_probs = Variable(
@@ -257,18 +254,21 @@ class PolicyValueNet():
         loss = value_loss + policy_loss
         # backward and optimize
         loss.backward()
-        self.optimizer.step()
+        self.policy_optimizer.step()
+        self.value_optimizer.step()
         # calc policy entropy, for monitoring only
         entropy = -torch.mean(
             torch.sum(torch.exp(log_act_probs) * log_act_probs, 1)
         )
         return loss.item(), entropy.item()
 
-    def get_policy_param(self):
-        net_params = self.policy_net.state_dict()
-        return net_params
+    def get_param(self):
+        policy_net_params = self.policy_net.state_dict()
+        value_net_params = self.value_net.state_dict()
+        return policy_net_params, value_net_params
 
-    def save_model(self, model_file):
+    def save_model(self, policy_model_file, value_model_file):
         """ save model params to file """
-        net_params = self.get_policy_param()  # get model params
-        torch.save(net_params, model_file)
+        policy_net_params, value_net_params = self.get_param()  # get model params
+        torch.save(policy_net_params, policy_model_file)
+        torch.save(value_net_params, value_model_file)

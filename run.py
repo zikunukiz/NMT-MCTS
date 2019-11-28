@@ -20,7 +20,7 @@ class TrainPipeline():
         self.learn_rate = 2e-3
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
-        self.n_playout = 500  # num of simulations for each move
+        self.n_playout = 200  # num of simulations for each move
         self.c_puct = 5
         self.buffer_size = 10000
         self.batch_size = 512  # mini-batch size for training
@@ -48,7 +48,7 @@ class TrainPipeline():
                                       n_playout=self.n_playout,
                                       is_selfplay=1)
 
-        self.n_avlb = 200
+        self.n_avlb = 100
         self.src = src
         self.tgt = tgt
         self.vocab = vocab
@@ -79,6 +79,7 @@ class TrainPipeline():
                 #                 self.pure_mcts_playout_num < 5000):
                 #             self.pure_mcts_playout_num += 1000
                 #             self.best_win_ratio = 0.0
+                break
         except KeyboardInterrupt:
             print('\n\rquit')
 
@@ -90,8 +91,6 @@ class TrainPipeline():
                                                           temp=self.temp)
             translation_data = list(translation_data)[:]
             self.episode_len = len(translation_data)
-            # augment the data
-            translation_data = self.get_equi_data(translation_data)
             self.data_buffer.extend(translation_data)
 
     def policy_update(self):

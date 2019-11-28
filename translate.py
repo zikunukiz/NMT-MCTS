@@ -38,15 +38,10 @@ class Translation(object):
         # pick highest 200 probability words
         # assume word_probs numpy array
         if self.policy_value_net.use_gpu == True:
-            src_tensor = Variable(torch.from_numpy(
-                np.array(self.src).reshape(-1, 1))).to(self.policy_value_net.device)
-            dec_input = Variable(torch.from_numpy(
-                np.array(self.output).reshape(-1, 1))).to(self.policy_value_net.device)
-        else:
-            src_tensor = Variable(torch.from_numpy(
-                np.array(self.src).reshape(-1, 1)))
-            dec_input = Variable(torch.from_numpy(
-                np.array(self.output).reshape(-1, 1)))
+            src_tensor = torch.from_numpy(
+                np.array(self.src).reshape(-1, 1)).to(self.policy_value_net.device)
+            dec_input = torch.from_numpy(
+                np.array(self.output).reshape(-1, 1)).to(self.policy_value_net.device)
         
         log_word_probs, value, encoder_output = self.policy_value_net.policy_value(src_tensor, dec_input)
         word_probs = np.exp(log_word_probs)
@@ -66,31 +61,28 @@ class Translation(object):
     def do_move(self, word_id):  # can change name to choose_word
         # word_id is the index in the vocab
         # TO DO: normalize other probabilities?
-        # add word as new input
+        # choose word
+        self.last_word_id = word_id
+        self.output = np.append(self.output, word_id)
+
+        # choose top 200 words
         if self.policy_value_net.use_gpu == True:
-            src_tensor = Variable(torch.from_numpy(
-                    np.array(self.src).reshape(-1, 1))).to(self.policy_value_net.device)
-            dec_input = Variable(torch.from_numpy(
-                    np.array(self.output).reshape(-1, 1))).to(self.policy_value_net.device)
-        else:
-            src_tensor = Variable(torch.from_numpy(
-                    np.array(self.src).reshape(-1, 1)))
-            dec_input = Variable(torch.from_numpy(
-                    np.array(self.output).reshape(-1, 1)))
+            src_tensor = torch.from_numpy(
+                    np.array(self.src).reshape(-1, 1)).to(self.policy_value_net.device)
+            dec_input = torch.from_numpy(
+                    np.array(self.output).reshape(-1, 1)).to(self.policy_value_net.device)
 
         log_word_probs, value, encoder_output = self.policy_value_net.policy_value(
                 src_tensor, dec_input, self.encoder_output) # reusing encoder_output
         word_probs = np.exp(log_word_probs)
-
         top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
-        next_id = np.argpartition(word_probs, -1)[-1:]
         self.availables = top_ids
-        self.output = np.append(self.output, next_id)
+        
 
     def translation_end(self):
         """Check whether the translation is ended or not"""
         # print(self.output.tolist()[-1])
-        if self.output.tolist()[-1] == EOS_WORD_ID:
+        if self.last_word_id == EOS_WORD_ID:
             # revert tokenization back to strings
             predict_tokens = self.vocab[self.output].tolist()
             ref_tokens = self.vocab[self.tgt].tolist()
@@ -170,5 +162,6 @@ class Translate(object):
                 bleus_z.append(bleu)
                 # reset MCTS root node
                 print("bleus_z collected: {}".format(bleus_z))
-                print("sentence produced: {}".format(player.reset_player(self.translation.vocab[output].tolist())))
+                print("sentence produced: {}".format(self.translation.vocab[output].tolist()))
                 return bleu, zip(states, mcts_probs, bleus_z)
+

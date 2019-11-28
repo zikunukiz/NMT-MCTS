@@ -116,12 +116,16 @@ class MCTS(object):
         # a list of (action, probability) tuples p and a score v in [0, 1]
         action_probs, leaf_value = self._policy.policy_value_fn(state)
 
+        i = 0
         while(1):
             if node.is_leaf() or state.output.tolist()[-1] == 3:
                 break
             # Greedily select next word
             action, node = node.select(self._c_puct)
             state.do_move(action)
+            print("output: ".format(state.output.tolist()))
+            i+=1
+        print(i)
 
         # Check for end of translation 
         # TO DO: when testing, do not give bleu score when EOS, 
@@ -176,17 +180,18 @@ class MCTSTranslator(object):
     """AI translator based on MCTS"""
 
     def __init__(self, policy_value_net,
-                 c_puct=5, n_playout=2000, is_selfplay=0):
+                 c_puct=5, n_playout=2000, is_train=0):
         self.mcts = MCTS(policy_value_net, c_puct, n_playout)
 
     def get_action(self, translation, temp=1e-3, return_prob=0):
-        available_words = translation.availables
+        end, bleu = translation.translation_end()
         # the pi vector returned by MCTS as in the alphaGo Zero paper
         # TO DO renormalize visit counts (since we only look at 200 top words)
         word_probs = np.zeros(len(translation.vocab))
-        if len(available_words) > 0:
+        if not end:
             acts, probs = self.mcts.get_move_probs(translation, temp) # ouput vocab size
             word_probs[list(acts)] = probs
+
             # with the default temp=1e-3, it is almost equivalent
             # to choosing the move with the highest prob
             word_id = np.random.choice(acts, p=probs)
@@ -194,6 +199,22 @@ class MCTSTranslator(object):
             self.mcts.update_with_move(-1)
             word = translation.select_next_word(word_id)
             print("system chose word: {}".format(word))
+
+            # if self.is_train:
+            #     move = np.random.choice(
+            #         acts,
+            #         # additional exploration by adding Dirichlet noise (self play)
+            #         p=0.75*probs + 0.25*np.random.dirichlet(0.3*np.ones(len(probs)))
+            #     )
+            #     self.mcts.update_with_move(move)
+            # else:
+            #     # with the default temp=1e-3, it is almost equivalent
+            #     # to choosing the move with the highest prob
+            #     word_id = np.random.choice(acts, p=probs)
+            #     # reset the root node
+            #     self.mcts.update_with_move(-1)
+            #     word = translation.select_next_word(word_id)
+            #     print("system chose word: {}".format(word))
 
             if return_prob:
                 return word_id, word_probs
