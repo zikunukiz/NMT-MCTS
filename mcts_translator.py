@@ -116,15 +116,18 @@ class MCTS(object):
         # a list of (action, probability) tuples p and a score v in [0, 1]
 
         # 200 highest probabilities words
-        action_probs, leaf_value = self._policy.policy_value_fn(state)
         # i = 0
+        # action_probs, leaf_value = self._policy.policy_value_fn(state)
+        # i += 1
+        # print(i)
         while(1):
             if node.is_leaf() or state.output.tolist()[-1] == 3:
                 break
             # Greedily select next word
             action, node = node.select(self._c_puct)
             state.do_move(action)
-            print("output: {}".format(state.output.tolist()))
+            
+        print("output: {}".format(state.output.tolist()))
         #     i+=1
         # print("do move {}".format(i))
 
@@ -135,12 +138,13 @@ class MCTS(object):
         if not end:
             action_probs, leaf_value = self._policy.policy_value_fn(state)
             node.expand(action_probs)
+            # i += 1
+            # print(i)
         else:
             ## for end state，return the "true" leaf_value (BLEU score)
             leaf_value = bleu
         # Update value and visit count of nodes in this traversal
         node.update_recursive(leaf_value)
-
 
     def get_move_probs(self, state, temp=1e-3):
         """Run all playouts sequentially and return the available actions and
