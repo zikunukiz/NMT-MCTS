@@ -114,11 +114,9 @@ class MCTS(object):
         node = self._root
         # Evaluate the leaf using a policy value network which outputs 
         # a list of (action, probability) tuples p and a score v in [0, 1]
-        # print(state.encoder_output)
+
         # 200 highest probabilities words
         action_probs, leaf_value = self._policy.policy_value_fn(state)
-        # print(state.encoder_output)
-
         # i = 0
         while(1):
             if node.is_leaf() or state.output.tolist()[-1] == 3:
@@ -135,6 +133,7 @@ class MCTS(object):
         # but use value network prediction (estimation of bleu)
         end, bleu = state.translation_end()
         if not end:
+            action_probs, leaf_value = self._policy.policy_value_fn(state)
             node.expand(action_probs)
         else:
             ## for end state，return the "true" leaf_value (BLEU score)
@@ -199,9 +198,8 @@ class MCTSTranslator(object):
             # to choosing the move with the highest prob
             word_id = np.random.choice(acts, p=probs)
             # reset the root node
-            self.mcts.update_with_move(-1)
+            self.mcts.update_with_move(word_id)
             word = translation.select_next_word(word_id)
-            print("system chose word: {}".format(word))
 
             # if self.is_train:
             #     move = np.random.choice(
