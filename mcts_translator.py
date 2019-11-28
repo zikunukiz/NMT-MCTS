@@ -116,10 +116,6 @@ class MCTS(object):
         # a list of (action, probability) tuples p and a score v in [0, 1]
 
         # 200 highest probabilities words
-        # i = 0
-        # action_probs, leaf_value = self._policy.policy_value_fn(state)
-        # i += 1
-        # print(i)
         while(1):
             if node.is_leaf() or state.output.tolist()[-1] == 3:
                 break
@@ -127,9 +123,8 @@ class MCTS(object):
             action, node = node.select(self._c_puct)
             state.do_move(action)
             
-        print("output: {}".format(state.output.tolist()))
-        #     i+=1
-        # print("do move {}".format(i))
+        # print("output: {}".format(state.output.tolist()))
+
 
         # Check for end of translation 
         # TO DO: when testing, do not give bleu score when EOS, 
@@ -153,13 +148,10 @@ class MCTS(object):
         temp: temperature parameter in (0, 1] controls the level of exploration
         """
         for n in range(self._n_playout):
-            # bug: RuntimeError: Only Tensors created explicitly by the user 
-            # (graph leaves) support the deepcopy protocol at the moment
-            print("simulation - {}".format(n))
-            # print("source: {}".format(state.src))
+            # print("simulation - {}".format(n))
             state_copy = copy.deepcopy(state)
             self._playout(state_copy)
-        print("simluations finished")
+        # print("simluations finished")
         # calc the move probabilities based on visit counts at the root node
         # TODO: normalize _n_visits
         act_visits = [(act, node._n_visits)

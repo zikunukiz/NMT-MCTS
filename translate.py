@@ -59,11 +59,11 @@ class Translation(object):
             reference_list = self.fix_sentence(ref_tokens)
             prediction = ' '.join(word for word in prediction_list)
             reference = ' '.join(word for word in reference_list)
-            print("reference: {}".format(reference))
-            print("prediction: {}".format(prediction))
+            # print("reference: {}".format(reference))
+            # print("prediction: {}".format(prediction))
             # compute sacre BLEU score adjusted for length
             bleu = sacrebleu.corpus_bleu([prediction], [[reference]], smooth_method='exp').score / 100
-            print("BLEU: {}".format(bleu))
+            # print("BLEU: {}".format(bleu))
             return True, bleu # TO DO return value output if end
         else:
             return False, -1
@@ -108,6 +108,8 @@ class Translate(object):
             bleus_z: list of bleu scores
         """
         self.translation.init_state()
+        translator.mcts._policy.initial_encoder(self.translation)
+
         states, mcts_probs, bleus_z = [], [], []
         while True:
             # 55 seconds per loop (100 simulations)

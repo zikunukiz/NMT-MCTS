@@ -197,6 +197,22 @@ class PolicyValueNet():
             value = np.array(value_output.tolist())
             return log_act_probs, value, memory # return encoder_output as well
 
+    def initial_encoder(self, translation):
+        """
+        initilize the encoder output to be reused later on
+        """
+        (src, output) = translation.current_state()
+        n_avlb = translation.n_avlb
+
+        if self.use_gpu:
+            src_tensor = torch.from_numpy(
+                np.array(src).reshape(-1, 1)).to(self.device)
+            output_tensor = torch.from_numpy(
+                np.array(output).reshape(-1, 1)).to(self.device)
+
+        log_act_probs, value, memory = self.policy_value(src_tensor, output_tensor)
+        translation.encoder_output = memory.clone().detach()
+
     def policy_value_fn(self, translation):
         """
         input: translation
@@ -206,7 +222,10 @@ class PolicyValueNet():
         """
         (src, output) = translation.current_state()
         n_avlb = translation.n_avlb
+
         encoder_output = translation.encoder_output
+        if encoder_output is None:
+            print("ENCODER NONE")
 
         if self.use_gpu:
             src_tensor = torch.from_numpy(
@@ -215,11 +234,6 @@ class PolicyValueNet():
                 np.array(output).reshape(-1, 1)).to(self.device)
 
         log_act_probs, value, memory = self.policy_value(src_tensor, output_tensor, encoder_output)
-        
-        if encoder_output is None:
-            translation.encoder_output = memory.clone().detach()
-        else:
-            pass
 
         act_probs = np.exp(log_act_probs)
         top_ids = np.argpartition(act_probs, -n_avlb)[-n_avlb:]
@@ -228,12 +242,16 @@ class PolicyValueNet():
 
         return act_probs, value
 
-    def train_step(self, state_batch, mcts_probs, bleu_batch, lr):
+    def train_step(self, source, translation, mcts_probs, bleu_batch, lr):
         """perform a training step"""
         # wrap in Variable
         if self.use_gpu:
-            state_batch = Variable(
-                torch.FloatTensor(state_batch)).to(self.device)  # (src, output) tuples
+            # state_batch = Variable(
+            #     torch.FloatTensor(state_batch)).to(self.device)  # (src, output) tuples
+            source = Variable(
+                torch.FloatTensor(source)).to(self.device)
+            translation = Variable(
+                torch.FloatTensor(translation)).to(self.device)  
             mcts_probs = Variable(
                 torch.FloatTensor(mcts_probs)).to(self.device)
             bleu_batch = Variable(
@@ -245,7 +263,7 @@ class PolicyValueNet():
         set_learning_rate(self.optimizer, lr)
 
         # forward pass
-        log_act_probs, value = self.policy_value(state_batch[0], state_batch[1], req_grad=True)
+        log_act_probs, value = self.policy_value(source, translation, req_grad=True)
 
         if self.use_gpu:
             log_act_probs = Variable(
