@@ -13,7 +13,7 @@ import nltk
 global BOS_WORD_ID, EOS_WORD_ID, USEBLEU1
 BOS_WORD_ID = 2
 EOS_WORD_ID = 3
-USEBLEU1 = True
+USEBLEU1 = False
 
 
 class Translation(object):
@@ -83,7 +83,7 @@ class Translation(object):
             return False, -1
 
     
-    def fix_sentence(sentence,as_str=False):  
+    def fix_sentence(self,sentence,as_str=False):  
         #if as_str==True then join tokens by space unless comma or period
         new_sentence = []
         cur_word = ''
