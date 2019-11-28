@@ -191,9 +191,10 @@ class PolicyValueNet():
                                           tgt_mask=None, tgt_key_padding_mask=None,
                                           memory_key_padding_mask=src_key_padding_mask,
                                           memory=encoder_output)# convert to numpy array
-        print(value_output)
-        value_output = torch.sigmoid(value_output.view(1, -1)[0])
+        
+        value_output = torch.sigmoid(value_output[-1][0])
         value = np.array(value_output.tolist())
+        print(value)
         return log_act_probs, value, memory # return encoder_output as well
 
     def policy_value_fn(self, translation):
@@ -215,10 +216,7 @@ class PolicyValueNet():
                 src_tensor, output_tensor, encoder_output)
             act_probs = np.exp(log_act_probs)
 
-        # act_probs = act_probs[0]
-        # legal_positions = legal_positions[0]
         act_probs = zip(legal_positions.tolist(), act_probs[legal_positions].tolist())
-        # value = value[0].tolist()
 
         return act_probs, value
 

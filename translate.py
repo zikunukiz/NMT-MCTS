@@ -46,9 +46,10 @@ class Translation(object):
                 np.array(self.src).reshape(-1, 1)))
             dec_input = Variable(torch.from_numpy(
                 np.array(self.output).reshape(-1, 1)))
-
+        
         log_word_probs, value, encoder_output = self.policy_value_net.policy_value(src_tensor, dec_input)
         word_probs = np.exp(log_word_probs)
+
         top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
         self.encoder_output = encoder_output.clone().detach() # store for later tranlstion output
         self.availables = top_ids
@@ -80,8 +81,6 @@ class Translation(object):
         log_word_probs, value, encoder_output = self.policy_value_net.policy_value(
                 src_tensor, dec_input, self.encoder_output) # reusing encoder_output
         word_probs = np.exp(log_word_probs)
-        print("init_state")
-        print(word_probs)
 
         top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
         next_id = np.argpartition(word_probs, -1)[-1:]
