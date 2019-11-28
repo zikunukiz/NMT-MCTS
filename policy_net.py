@@ -158,7 +158,7 @@ class PolicyValueNet():
         self.value_optimizer = optim.Adam(
             self.value_net.parameters(), weight_decay=self.l2_const)
 
-    def policy_value(self, src_tensor, dec_input, encoder_output=None):
+    def policy_value(self, src_tensor, dec_input, encoder_output=None, req_grad=False):
         """
         input: batch of states (tensor)
                 src_tensor: batch of source sentences 
@@ -170,31 +170,32 @@ class PolicyValueNet():
         # TO DO Reshape to (-1,1)?
         # src_key_padding_mask = (src_tensor == dataset_dict['src_padding_ind']).transpose(0, 1)
         src_key_padding_mask = (src_tensor == 1).transpose(0, 1)
-        policy_output, memory = self.policy_net.forward(src_tensor, dec_input,
-                                         src_key_padding_mask=src_key_padding_mask,
-                                         tgt_mask=None, tgt_key_padding_mask=None,
-                                         memory_key_padding_mask=src_key_padding_mask,
-                                         memory=encoder_output)
-        log_act_probs = F.log_softmax(policy_output[-1, :, :], dim=1)
-        log_act_probs = np.array(log_act_probs.tolist()[0])
+        with torch.set_grad_enabled(req_grad):
+            policy_output, memory = self.policy_net.forward(src_tensor, dec_input,
+                                             src_key_padding_mask=src_key_padding_mask,
+                                             tgt_mask=None, tgt_key_padding_mask=None,
+                                             memory_key_padding_mask=src_key_padding_mask,
+                                             memory=encoder_output)
+            log_act_probs = F.log_softmax(policy_output[-1, :, :], dim=1)
+            log_act_probs = np.array(log_act_probs.tolist()[0])
 
-        self.value_net.decoder_embedding.weight = nn.Parameter(
-           self.policy_net.decoder_embedding.weight.clone())
-        if encoder_output is None: # use memory produced by policy
-            value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
-                                          src_key_padding_mask=src_key_padding_mask,
-                                          tgt_mask=None, tgt_key_padding_mask=None,
-                                          memory_key_padding_mask=src_key_padding_mask,
-                                          memory=memory)
-        else: # use given encoder_output
-            value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
-                                          src_key_padding_mask=src_key_padding_mask,
-                                          tgt_mask=None, tgt_key_padding_mask=None,
-                                          memory_key_padding_mask=src_key_padding_mask,
-                                          memory=encoder_output)# convert to numpy array
-        value_output = torch.sigmoid(value_output[-1][0])
-        value = np.array(value_output.tolist())
-        return log_act_probs, value, memory # return encoder_output as well
+            self.value_net.decoder_embedding.weight = nn.Parameter(
+               self.policy_net.decoder_embedding.weight.clone())
+            if encoder_output is None: # use memory produced by policy
+                value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
+                                              src_key_padding_mask=src_key_padding_mask,
+                                              tgt_mask=None, tgt_key_padding_mask=None,
+                                              memory_key_padding_mask=src_key_padding_mask,
+                                              memory=memory)
+            else: # use given encoder_output
+                value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
+                                              src_key_padding_mask=src_key_padding_mask,
+                                              tgt_mask=None, tgt_key_padding_mask=None,
+                                              memory_key_padding_mask=src_key_padding_mask,
+                                              memory=encoder_output)# convert to numpy array
+            value_output = torch.sigmoid(value_output[-1][0])
+            value = np.array(value_output.tolist())
+            return log_act_probs, value, memory # return encoder_output as well
 
     def policy_value_fn(self, translation):
         """
@@ -244,7 +245,7 @@ class PolicyValueNet():
         set_learning_rate(self.optimizer, lr)
 
         # forward pass
-        log_act_probs, value = self.policy_value(state_batch[0], state_batch[1])
+        log_act_probs, value = self.policy_value(state_batch[0], state_batch[1], req_grad=True)
 
         if self.use_gpu:
             log_act_probs = Variable(

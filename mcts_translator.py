@@ -141,6 +141,7 @@ class MCTS(object):
         # Update value and visit count of nodes in this traversal
         node.update_recursive(leaf_value)
 
+
     def get_move_probs(self, state, temp=1e-3):
         """Run all playouts sequentially and return the available actions and
         their corresponding probabilities.
