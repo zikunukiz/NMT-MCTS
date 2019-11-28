@@ -13,7 +13,7 @@ import nltk
 global BOS_WORD_ID, EOS_WORD_ID, USEBLEU1
 BOS_WORD_ID = 2
 EOS_WORD_ID = 3
-USEBLEU1 = False
+USEBLEU1 = True
 
 
 class Translation(object):
@@ -82,9 +82,8 @@ class Translation(object):
         else:
             return False, -1
 
-
-    def fix_sentence(self, sentence,as_str=False):  
-
+    
+    def fix_sentence(self, sentence, as_str=False):  
         #if as_str==True then join tokens by space unless comma or period
         new_sentence = []
         cur_word = ''
@@ -167,6 +166,10 @@ class Translate(object):
             if end:
                 bleus_z.append(bleu)
                 # reset MCTS root node
-                print("bleus_z collected: {}".format(bleus_z))
+                # print("states collected: {}".format(states))
+                # print("states len: {}".format(len(states)))
+                # print("mcts_probs collected: {}".format(mcts_probs))
+                # print("mcts_probs len: {}".format(len(mcts_probs)))
+                # print("bleus_z collected: {}".format(bleus_z))
                 return bleu, zip(states, mcts_probs, bleus_z)
 

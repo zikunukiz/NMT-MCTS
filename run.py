@@ -2,40 +2,41 @@
 """
 @author: Jerry Zikun Chen
 """
-
 from __future__ import print_function
 from translate import Translate, Translation
 from mcts_translator import MCTSTranslator
 from policy_net import PolicyValueNet, MainParams
 from load_data import createIterators
 from collections import deque
+import torch
+import numpy as np
+import random
+import time
 
 
 class TrainPipeline():
-    def __init__(self, src, tgt, vocab, init_params,
+    def __init__(self, dataset_dict, vocab, init_params,
                   init_policy_model=None, init_value_model=None):
-        # params of the translation
+
+        self.n_playout = 100  # num of simulations for each move
+        self.batch_size = 1  # mini-batch size for training
+        self.play_batch_size = 1
+        # self.translation_batch_num = 2 # number of translation to do
+        self.n_avlb = 200 # number of nodes to search at each layer
+        self.epochs = 1  # num of train_steps for each update
 
         # training params
         self.learn_rate = 2e-3
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
-        self.n_playout = 100  # num of simulations for each move
         self.c_puct = 5
         self.buffer_size = 10000
-        self.batch_size = 512  # mini-batch size for training
         self.data_buffer = deque(maxlen=self.buffer_size)
-        self.play_batch_size = 1
-        self.epochs = 5  # num of train_steps for each update
         self.kl_targ = 0.02
         self.check_freq = 50
-        self.translation_batch_num = 100
         self.device = init_params.device
         # self.best_win_ratio = 0.0
-
-        # num of simulations used for the pure mcts, which is used as
-        # the opponent to evaluate the trained policy
-        # self.pure_mcts_playout_num = 1000
+        
         if init_policy_model and init_value_model:
             # start training from an initial policy-value net
             self.policy_value_net = PolicyValueNet(main_params=init_params,
@@ -48,22 +49,33 @@ class TrainPipeline():
                                       c_puct=self.c_puct,
                                       n_playout=self.n_playout,
                                       is_train=1)
-
-        self.n_avlb = 200
-        self.src = src
-        self.tgt = tgt
+        self.dataset_dict = dataset_dict
         self.vocab = vocab
-        self.translation = Translation(self.src, self.tgt, self.n_avlb, self.vocab, self.device)
-        self.translate = Translate(self.translation)
 
     def run(self):
         """run the training pipeline"""
+        # training
+        dataset_type = "train"
+        dataset_iterator = self.dataset_dict[dataset_type + '_iter']
+        
         try:
-            for i in range(self.translation_batch_num):
+            i = 0
+            for batch in dataset_iterator:
+                src = vars(batch)['de'].view(-1).tolist()
+                tgt = vars(batch)['en'].view(-1).tolist()
+                self.src = src
+                self.tgt = tgt
+                self.translation = Translation(self.src, self.tgt, self.n_avlb, self.vocab, self.device)
+                self.translate = Translate(self.translation)
+                
+                start_time = time.time()
                 self.collect_translation_data(self.play_batch_size)
-                print("batch i:{}, episode_len:{}".format(
-                        i+1, self.episode_len))
+                i += 1
+                print("batch i: {}, episode_len: {}".format(
+                        i, self.episode_len))
+                print("total simulation time: {}".format(time.time() - start_time))
                 if len(self.data_buffer) > self.batch_size:
+                    print("=========== train network ===========")
                     policy_loss, entropy = self.policy_update()
                 # TO DO check the performance of the current model,
                 # and save the model params
@@ -79,7 +91,7 @@ class TrainPipeline():
                 #         if (self.best_win_ratio == 1.0 and
                 #                 self.pure_mcts_playout_num < 5000):
                 #             self.pure_mcts_playout_num += 1000
-                #             self.best_win_ratio = 0.0
+                #             self.best_win_ratio = 0.0    
         except KeyboardInterrupt:
             print('\n\rquit')
 
@@ -91,24 +103,37 @@ class TrainPipeline():
                                                           temp=self.temp)
             translation_data = list(translation_data)[:]
             self.episode_len = len(translation_data)
-            # augment the data
-            translation_data = self.get_equi_data(translation_data)
+            # print(translation_data)            
             self.data_buffer.extend(translation_data)
+            # break
 
     def policy_update(self):
         """update the policy-value net"""
         mini_batch = random.sample(self.data_buffer, self.batch_size)
-        state_batch = [data[0] for data in mini_batch]
+        state_batch = [data[0] for data in mini_batch] # list of tuple (src, output)
         mcts_probs_batch = [data[1] for data in mini_batch]
         bleu_batch = [data[2] for data in mini_batch]
-        old_probs, old_v = self.policy_value_net.policy_value(state_batch)
+
+        # print(mini_batch)
+        # print(state_batch, mcts_probs_batch, bleu_batch)
+
+        # state_batch = zip(*state_batch)
+        # print(state_batch)
+        src = state_batch[0][0]
+        output = state_batch[0][1]
+        src_tensor = torch.from_numpy(
+                np.array(src).reshape(-1, 1)).to(self.device)
+        output_tensor = torch.from_numpy(
+                np.array(output).reshape(-1, 1)).to(self.device)
+        old_probs, old_v, encoder_output = self.policy_value_net.policy_value(src_tensor, output_tensor)
         for i in range(self.epochs):
+            print("train step")
             loss, entropy = self.policy_value_net.train_step(
-                    state_batch,
+                    src, output,
                     mcts_probs_batch,
                     bleu_batch,
                     self.learn_rate*self.lr_multiplier)
-            new_probs, new_v = self.policy_value_net.policy_value(state_batch)
+            new_probs, new_v = self.policy_value_net.policy_value(src_tensor, output_tensor)
             kl = np.mean(np.sum(old_probs * (
                     np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)),
                     axis=1)
@@ -143,11 +168,11 @@ class TrainPipeline():
 
 if __name__ == '__main__':
     working_path = ''
-    policy_pt = 'policy_supervised_RLTrained.pt'
-    value_pt = 'value_supervised_RLTrained.pt'
+    policy_pt = 'policy_supervised_RLTrained_BLEU1.pt'
+    value_pt = 'value_supervised_RLTrained_BLEU1.pt'
 
     batch_size = 1
-    dataset_dict = createIterators(batch_size, working_path + 'iwsltTokenizedData/')
+    dataset_dict = createIterators(batch_size, working_path + '')
 
     # English vocabulary
     eng_vocab = dataset_dict['TGT'].vocab.itos
@@ -156,21 +181,12 @@ if __name__ == '__main__':
     main_params = MainParams(dropout=0.2, src_vocab_size=src_vocab_size,
                   tgt_vocab_size=tgt_vocab_size, batch_size=batch_size)
 
-    dataset_type = "train"
-    dataset_iterator = dataset_dict[dataset_type + '_iter']
 
     policy_file = working_path + policy_pt
     value_file = working_path + value_pt
 
-    for batch in dataset_iterator:
-        src = vars(batch)['de'].view(-1).tolist()
-        tgt = vars(batch)['en'].view(-1).tolist()
-
-        src_tensor = vars(batch)['de']
-
-        training_pipeline = TrainPipeline(src, tgt, eng_vocab, init_params = main_params, 
+    training_pipeline = TrainPipeline(dataset_dict, eng_vocab, init_params = main_params, 
                             init_policy_model=policy_file, init_value_model=value_file)
-        training_pipeline.run()
-        break
+    training_pipeline.run()
 
 

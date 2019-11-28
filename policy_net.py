@@ -258,9 +258,11 @@ class PolicyValueNet():
                 torch.FloatTensor(bleu_batch)).to(self.device)
 
         # zero the parameter gradients
-        self.optimizer.zero_grad()
+        self.policy_optimizer.zero_grad()
+        self.value_optimizer.zero_grad()
         # set learning rate
-        set_learning_rate(self.optimizer, lr)
+        set_learning_rate(self.policy_optimizer, lr)
+        set_learning_rate(self.value_optimizer, lr)
 
         # forward pass
         log_act_probs, value = self.policy_value(source, translation, req_grad=True)
