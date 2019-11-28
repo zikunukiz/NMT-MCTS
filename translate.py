@@ -8,6 +8,7 @@ import numpy as np
 from torch.autograd import Variable
 import torch
 import sacrebleu
+import time
 
 global BOS_WORD_ID, EOS_WORD_ID
 BOS_WORD_ID = 2
@@ -76,8 +77,7 @@ class Translation(object):
                     np.array(self.src).reshape(-1, 1)))
             dec_input = Variable(torch.from_numpy(
                     np.array(self.output).reshape(-1, 1)))
-        # encoder_output.requires_grad == True -> cannot create deepcopy?
-        # should encoder_ouput be stored as numpy like src and output??
+
         log_word_probs, value, encoder_output = self.policy_value_net.policy_value(
                 src_tensor, dec_input, self.encoder_output) # reusing encoder_output
         word_probs = np.exp(log_word_probs)
@@ -101,7 +101,7 @@ class Translation(object):
             print("reference: {}".format(reference))
             print("prediction: {}".format(prediction))
             # compute sacre BLEU score adjusted for length
-            bleu = sacrebleu.corpus_bleu([prediction], [[reference]], smooth_method='exp').score
+            bleu = sacrebleu.corpus_bleu([prediction], [[reference]], smooth_method='exp').score / 100
             print("BLEU: {}".format(bleu))
             return True, bleu # TO DO return value output if end
         else:
@@ -149,6 +149,8 @@ class Translate(object):
         self.translation.init_state()
         states, mcts_probs, bleus_z = [], [], []
         while True:
+            # 55 seconds per loop (100 simulations)
+            start_time = time.time()
             word_id, word_probs = translator.get_action(self.translation,
                                                         temp=temp,
                                                         return_prob=1)
@@ -159,11 +161,14 @@ class Translate(object):
             # choose a word (perform a move)
             self.translation.do_move(word_id)
             end, bleu = self.translation.translation_end()
-            print("states collected: ".format(states))
-            print("mcts_probs collected: ".format(mcts_probs))
-            print("bleus_z collected: ".format(bleus_z))
+            
+            print("states collected: {}".format(states))
+            print("mcts_probs collected: {}".format(mcts_probs))
+            print("time: {}".format(time.time() - start_time))
+
             if end:
                 bleus_z.append(bleu)
                 # reset MCTS root node
-                player.reset_player()
+                print("bleus_z collected: {}".format(bleus_z))
+                print("sentence produced: {}".format(player.reset_player(self.translation.vocab[output].tolist())))
                 return bleu, zip(states, mcts_probs, bleus_z)

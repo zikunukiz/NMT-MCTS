@@ -117,7 +117,6 @@ class MCTS(object):
         action_probs, leaf_value = self._policy.policy_value_fn(state)
 
         while(1):
-            print("simulated output: {}".format(state.output))
             if node.is_leaf() or state.output.tolist()[-1] == 3:
                 break
             # Greedily select next word
@@ -146,7 +145,7 @@ class MCTS(object):
             # bug: RuntimeError: Only Tensors created explicitly by the user 
             # (graph leaves) support the deepcopy protocol at the moment
             print("simulation - {}".format(n))
-            print("source: {}".format(state.src))
+            # print("source: {}".format(state.src))
             state_copy = copy.deepcopy(state)
             self._playout(state_copy)
         print("simluations finished")
