@@ -114,18 +114,21 @@ class MCTS(object):
         node = self._root
         # Evaluate the leaf using a policy value network which outputs 
         # a list of (action, probability) tuples p and a score v in [0, 1]
+        # print(state.encoder_output)
+        # 200 highest probabilities words
         action_probs, leaf_value = self._policy.policy_value_fn(state)
+        # print(state.encoder_output)
 
-        i = 0
+        # i = 0
         while(1):
             if node.is_leaf() or state.output.tolist()[-1] == 3:
                 break
             # Greedily select next word
             action, node = node.select(self._c_puct)
             state.do_move(action)
-            print("output: ".format(state.output.tolist()))
-            i+=1
-        print(i)
+            print("output: {}".format(state.output.tolist()))
+        #     i+=1
+        # print("do move {}".format(i))
 
         # Check for end of translation 
         # TO DO: when testing, do not give bleu score when EOS, 
@@ -189,7 +192,7 @@ class MCTSTranslator(object):
         # TO DO renormalize visit counts (since we only look at 200 top words)
         word_probs = np.zeros(len(translation.vocab))
         if not end:
-            acts, probs = self.mcts.get_move_probs(translation, temp) # ouput vocab size
+            acts, probs = self.mcts.get_move_probs(translation, temp) # output vocab size
             word_probs[list(acts)] = probs
 
             # with the default temp=1e-3, it is almost equivalent

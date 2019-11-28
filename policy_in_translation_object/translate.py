@@ -16,7 +16,7 @@ EOS_WORD_ID = 3
 
 
 class Translation(object):
-    def __init__(self, src, tgt, n_avlb, vocab, device = None, **kwargs,):
+    def __init__(self, src, tgt, n_avlb, vocab, device, **kwargs,):
         """
         n_avlb: number of available word to choose at each step
         src: list of indices (SRC vocab) representing source sentence 
@@ -50,12 +50,8 @@ class Translation(object):
         # top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
         # self.encoder_output = encoder_output.clone().detach() # store for later tranlstion output
         self.encoder_output = None
-        # self.availables = top_ids
+        self.availables = top_ids
         self.last_word_id = BOS_WORD_ID
-        # if self.device is None:
-        #   self.use_gpu = False
-        # else:
-        #   self.use_gpu = True
 
     def current_state(self):
         # Q There are two outputs for now, does it fit with data buffer?
@@ -71,18 +67,18 @@ class Translation(object):
         self.last_word_id = word_id
         self.output = np.append(self.output, word_id)
 
-        # # choose top 200 words
-        # if self.use_gpu == True:
-        #     src_tensor = torch.from_numpy(
-        #             np.array(self.src).reshape(-1, 1)).to(self.device)
-        #     dec_input = torch.from_numpy(
-        #             np.array(self.output).reshape(-1, 1)).to(self.device)
+        # choose top 200 words
+        if self.policy_value_net.use_gpu == True:
+            src_tensor = torch.from_numpy(
+                    np.array(self.src).reshape(-1, 1)).to(self.device)
+            dec_input = torch.from_numpy(
+                    np.array(self.output).reshape(-1, 1)).to(self.device)
 
-        # log_word_probs, value, encoder_output = self.policy_value_net.policy_value(
-        #         src_tensor, dec_input, self.encoder_output) # reusing encoder_output
-        # word_probs = np.exp(log_word_probs)
-        # top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
-        # self.availables = top_ids
+        log_word_probs, value, encoder_output = self.policy_value_net.policy_value(
+                src_tensor, dec_input, self.encoder_output) # reusing encoder_output
+        word_probs = np.exp(log_word_probs)
+        top_ids = np.argpartition(word_probs, -self.n_avlb)[-self.n_avlb:]
+        self.availables = top_ids
         
 
     def translation_end(self):

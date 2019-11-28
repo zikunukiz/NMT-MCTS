@@ -223,7 +223,7 @@ class PolicyValueNet():
         act_probs = np.exp(log_act_probs)
         top_ids = np.argpartition(act_probs, -n_avlb)[-n_avlb:]
 
-        act_probs = zip(top_ids.tolist(), act_probs[top_ids].tolist())
+        act_probs = zip(legal_positions.tolist(), act_probs[legal_positions].tolist())
 
         return act_probs, value
 

@@ -12,15 +12,15 @@ from collections import deque
 
 
 class TrainPipeline():
-    def __init__(self, src, tgt, vocab, init_params,
-                  init_policy_model=None, init_value_model=None):
+    def __init__(self, src, tgt, vocab, init_params, 
+            init_policy_model=None, init_value_model=None):
         # params of the translation
 
         # training params
         self.learn_rate = 2e-3
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
-        self.n_playout = 100  # num of simulations for each move
+        self.n_playout = 200  # num of simulations for each move
         self.c_puct = 5
         self.buffer_size = 10000
         self.batch_size = 512  # mini-batch size for training
@@ -30,7 +30,6 @@ class TrainPipeline():
         self.kl_targ = 0.02
         self.check_freq = 50
         self.translation_batch_num = 100
-        self.device = init_params.device
         # self.best_win_ratio = 0.0
 
         # num of simulations used for the pure mcts, which is used as
@@ -47,13 +46,13 @@ class TrainPipeline():
         self.mcts_translator = MCTSTranslator(self.policy_value_net,
                                       c_puct=self.c_puct,
                                       n_playout=self.n_playout,
-                                      is_train=1)
+                                      is_selfplay=1)
 
-        self.n_avlb = 200
+        self.n_avlb = 100
         self.src = src
         self.tgt = tgt
         self.vocab = vocab
-        self.translation = Translation(self.src, self.tgt, self.n_avlb, self.vocab, self.device)
+        self.translation = Translation(self.src, self.tgt, self.n_avlb, self.vocab, self.policy_value_net)
         self.translate = Translate(self.translation)
 
     def run(self):
@@ -80,6 +79,7 @@ class TrainPipeline():
                 #                 self.pure_mcts_playout_num < 5000):
                 #             self.pure_mcts_playout_num += 1000
                 #             self.best_win_ratio = 0.0
+                break
         except KeyboardInterrupt:
             print('\n\rquit')
 
@@ -91,8 +91,6 @@ class TrainPipeline():
                                                           temp=self.temp)
             translation_data = list(translation_data)[:]
             self.episode_len = len(translation_data)
-            # augment the data
-            translation_data = self.get_equi_data(translation_data)
             self.data_buffer.extend(translation_data)
 
     def policy_update(self):
@@ -142,6 +140,7 @@ class TrainPipeline():
         return loss, entropy
 
 if __name__ == '__main__':
+    # create iterator to loop over batch data
     working_path = ''
     policy_pt = 'policy_supervised_RLTrained.pt'
     value_pt = 'value_supervised_RLTrained.pt'
@@ -163,14 +162,17 @@ if __name__ == '__main__':
     value_file = working_path + value_pt
 
     for batch in dataset_iterator:
-        src = vars(batch)['de'].view(-1).tolist()
-        tgt = vars(batch)['en'].view(-1).tolist()
+      src = vars(batch)['de'].view(-1).tolist()
+      tgt = vars(batch)['en'].view(-1).tolist()
 
-        src_tensor = vars(batch)['de']
+      src_tensor = vars(batch)['de']
 
-        training_pipeline = TrainPipeline(src, tgt, eng_vocab, init_params = main_params, 
-                            init_policy_model=policy_file, init_value_model=value_file)
-        training_pipeline.run()
-        break
+      # print((src_tensor == dataset_dict['src_padding_ind']).transpose(0, 1))
+      # break
+
+      training_pipeline = TrainPipeline(src, tgt, eng_vocab, init_params = main_params, 
+                          init_policy_model=policy_file, init_value_model=value_file)
+      training_pipeline.run()
+      break
 
 
