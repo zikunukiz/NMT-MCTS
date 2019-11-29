@@ -158,6 +158,7 @@ class PolicyValueNet():
         self.value_optimizer = optim.Adam(
             self.value_net.parameters(), weight_decay=self.l2_const)
 
+
     def policy_value(self, src_tensor, dec_input, encoder_output=None, req_grad=False):
         """
         input: batch of states (tensor)
@@ -169,6 +170,9 @@ class PolicyValueNet():
         """
         # TO DO Reshape to (-1,1)?
         # src_key_padding_mask = (src_tensor == dataset_dict['src_padding_ind']).transpose(0, 1)
+        # print(src_tensor.shape)
+        self.policy_net.eval()
+        self.value_net.eval()
         src_key_padding_mask = (src_tensor == 1).transpose(0, 1)
         with torch.set_grad_enabled(req_grad):
             policy_output, memory = self.policy_net.forward(src_tensor, dec_input,
@@ -196,6 +200,42 @@ class PolicyValueNet():
             value_output = torch.sigmoid(value_output[-1][0])
             value = np.array(value_output.tolist())
             return log_act_probs, value, memory # return encoder_output as well
+
+    def policy_value_train(self, src_tensor, dec_input, encoder_output=None, req_grad=True):
+        """
+        outputs tensor for training
+        """
+        # TO DO Reshape to (-1,1)?
+        # src_key_padding_mask = (src_tensor == dataset_dict['src_padding_ind']).transpose(0, 1)
+        # print(src_tensor.shape)
+        self.policy_net.train()
+        self.value_net.train()
+        src_key_padding_mask = (src_tensor == 1).transpose(0, 1)
+        with torch.set_grad_enabled(req_grad):
+            policy_output, memory = self.policy_net.forward(src_tensor, dec_input,
+                                             src_key_padding_mask=src_key_padding_mask,
+                                             tgt_mask=None, tgt_key_padding_mask=None,
+                                             memory_key_padding_mask=src_key_padding_mask,
+                                             memory=encoder_output)
+            log_act_probs = F.log_softmax(policy_output[-1, :, :], dim=1)[0]
+
+            self.value_net.decoder_embedding.weight = nn.Parameter(
+               self.policy_net.decoder_embedding.weight.clone())
+            if encoder_output is None: # use memory produced by policy
+                value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
+                                              src_key_padding_mask=src_key_padding_mask,
+                                              tgt_mask=None, tgt_key_padding_mask=None,
+                                              memory_key_padding_mask=src_key_padding_mask,
+                                              memory=memory)
+            else: # use given encoder_output
+                value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
+                                              src_key_padding_mask=src_key_padding_mask,
+                                              tgt_mask=None, tgt_key_padding_mask=None,
+                                              memory_key_padding_mask=src_key_padding_mask,
+                                              memory=encoder_output)# convert to numpy array
+            value_output = torch.sigmoid(value_output[-1][0])
+            return log_act_probs, value_output, memory # return encoder_output as well
+
 
     def initial_encoder(self, translation):
         """
@@ -246,16 +286,14 @@ class PolicyValueNet():
         """perform a training step"""
         # wrap in Variable
         if self.use_gpu:
-            # state_batch = Variable(
-            #     torch.FloatTensor(state_batch)).to(self.device)  # (src, output) tuples
             source = Variable(
-                torch.FloatTensor(source)).to(self.device)
+                torch.from_numpy(source.reshape(-1, 1))).to(self.device)
             translation = Variable(
-                torch.FloatTensor(translation)).to(self.device)  
+                torch.from_numpy(translation.reshape(-1, 1))).to(self.device)  
             mcts_probs = Variable(
-                torch.FloatTensor(mcts_probs)).to(self.device)
+                torch.from_numpy(mcts_probs)).to(self.device)
             bleu_batch = Variable(
-                torch.FloatTensor(bleu_batch)).to(self.device)
+                torch.from_numpy(bleu_batch)).to(self.device)
 
         # zero the parameter gradients
         self.policy_optimizer.zero_grad()
@@ -265,29 +303,25 @@ class PolicyValueNet():
         set_learning_rate(self.value_optimizer, lr)
 
         # forward pass
-        log_act_probs, value = self.policy_value(source, translation, req_grad=True)
+        log_act_probs, value, encoder_output = self.policy_value_train(source, translation, req_grad=True)
 
-        if self.use_gpu:
-            log_act_probs = Variable(
-                torch.from_numpy(log_act_probs)).to(self.device)
-            value = Variable(torch.from_numpy(value)).to(self.device)
-        else:
-            log_act_probs = Variable(torch.from_numpy(log_act_probs))
-            value = Variable(torch.from_numpy(value))
-
+        # if self.use_gpu:
+        #     log_act_probs = Variable(
+        #         torch.from_numpy(log_act_probs)).to(self.device)
+        #     value = Variable(torch.from_numpy(value)).to(self.device)
+        
         # define the loss = (z - v)^2 - pi^T * log(p) + c||theta||^2
         # Note: the L2 penalty is incorporated in optimizer
         value_loss = F.mse_loss(value.view(-1), bleu_batch)
-        policy_loss = -torch.mean(torch.sum(mcts_probs*log_act_probs, 1))
+        # TODO support batch dimensions (right now only 1 data point)
+        policy_loss = - torch.dot(mcts_probs.view(-1), log_act_probs.view(-1))
         loss = value_loss + policy_loss
         # backward and optimize
         loss.backward()
         self.policy_optimizer.step()
         self.value_optimizer.step()
         # calc policy entropy, for monitoring only
-        entropy = -torch.mean(
-            torch.sum(torch.exp(log_act_probs) * log_act_probs, 1)
-        )
+        entropy = - torch.dot(torch.exp(log_act_probs.view(-1)), log_act_probs.view(-1))
         return loss.item(), entropy.item()
 
     def get_param(self):

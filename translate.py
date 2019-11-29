@@ -170,6 +170,6 @@ class Translate(object):
                 # print("states len: {}".format(len(states)))
                 # print("mcts_probs collected: {}".format(mcts_probs))
                 # print("mcts_probs len: {}".format(len(mcts_probs)))
-                # print("bleus_z collected: {}".format(bleus_z))
+                print("bleus collected: {}".format(bleus_z))
                 return bleu, zip(states, mcts_probs, bleus_z)
 
