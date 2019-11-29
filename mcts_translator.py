@@ -213,7 +213,7 @@ class MCTSTranslator(object):
             #     self.mcts.update_with_move(-1)
             #     word = translation.select_next_word(word_id)
             #     print("system chose word: {}".format(word))
-
+            
             if return_prob:
                 return word_id, word_probs
             else:

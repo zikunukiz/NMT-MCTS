@@ -142,11 +142,11 @@ class Translate(object):
         """
         self.translation.init_state()
         translator.mcts._policy.initial_encoder(self.translation)
-
+        print('New MCTS Simulations ...')
         states, mcts_probs, bleus_z = [], [], []
         while True:
             # 55 seconds per loop (100 simulations)
-            start_time = time.time()
+            # start_time = time.time()
             word_id, word_probs = translator.get_action(self.translation,
                                                         temp=temp,
                                                         return_prob=1)
@@ -158,10 +158,8 @@ class Translate(object):
             self.translation.do_move(word_id)
             end, bleu = self.translation.translation_end()
             
-            # print("states collected: {}".format(states))
-            # print("mcts_probs collected: {}".format(mcts_probs))
-            print("sentence produced: {}".format(self.translation.vocab[self.translation.output].tolist()))
-            print("time: {}".format(time.time() - start_time))
+            # print("sentence produced: {}".format(self.translation.vocab[self.translation.output].tolist()))
+            # print("time: {:.3f}".format(time.time() - start_time))
 
             if end:
                 bleus_z.append(bleu)
@@ -170,6 +168,12 @@ class Translate(object):
                 # print("states len: {}".format(len(states)))
                 # print("mcts_probs collected: {}".format(mcts_probs))
                 # print("mcts_probs len: {}".format(len(mcts_probs)))
-                print("bleus collected: {}".format(bleus_z))
+                predict_tokens = self.translation.vocab[self.translation.output].tolist()
+                source_tokens = self.translation.vocab[self.translation.tgt].tolist()
+                prediction = self.translation.fix_sentence(predict_tokens[1:-1])
+                source = self.translation.fix_sentence(source_tokens[1:-1])
+                print("source: {}".format(source))
+                print("translation: {}".format(prediction))
+                print("bleu: {}".format(bleus_z))
                 return bleu, zip(states, mcts_probs, bleus_z)
 
