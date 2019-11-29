@@ -174,6 +174,6 @@ class Translate(object):
                 source = self.translation.fix_sentence(source_tokens[1:-1])
                 print("source: {}".format(source))
                 print("translation: {}".format(prediction))
-                print("bleu: {}".format(bleus_z))
+                print("bleu: {:.3f}".format(bleus_z[0]))
                 return bleu, zip(states, mcts_probs, bleus_z)
 

@@ -314,6 +314,9 @@ class PolicyValueNet():
         # Note: the L2 penalty is incorporated in optimizer
         value_loss = F.mse_loss(value.view(-1), bleu_batch)
         # TODO support batch dimensions (right now only 1 data point)
+
+        # print(mcts_probs.shape, log_act_probs.shape)
+
         policy_loss = - torch.dot(mcts_probs.view(-1), log_act_probs.view(-1))
         loss = value_loss + policy_loss
         # backward and optimize
