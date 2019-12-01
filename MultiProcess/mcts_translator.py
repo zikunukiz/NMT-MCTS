@@ -11,6 +11,7 @@ import torch
 from torch.autograd import Variable
 import torch.distributed as dist
 import globalsFile
+from translate import *
 
 def softmax(x):
     probs = np.exp(x - np.max(x))
@@ -31,17 +32,19 @@ class TreeNode(object):
         # TO DO rescale by 0.95 (the aggregate prob from the 200 words)
         self._Q = 0 # the mean value of the next state
         self._u = 0
+        self._V = None  #keep value at this node so can reuse if we end up here again and it's EOS or maxlen
         self._P = prior_p
 
     def expand(self,top_actions,top_probs):
         """Expand tree by creating new children.
         action_priors: a list of tuples of actions and their prior probability
             according to the policy function.
-        """
-        assert(len(top_actions)==self.num_children)
-        for i in range(self.num_children):
-            action = top_actions[i]
+        """   
+        assert(len(self._children)==0)
+        for i in range(len(top_actions)):
+            action = top_actions[i].clone().detach().item()
             prob = top_probs[i] 
+            #print(action)
             assert(action not in self._children)
             self._children[action] = TreeNode(self, prob)
 
@@ -104,9 +107,9 @@ class MCTS(object):
             converges to the maximum-value policy. A higher value means
             relying on the prior more.
         """
-        self.group
+        self.group = group
         self.max_len = max_len #max translation length (need to path our tensors up to this for interprocess communication)
-        self.rankInGroup #is way of identifying this process in the group
+        self.rankInGroup =rankInGroup#is way of identifying this process in the group
         self._root = TreeNode(None, 1.0)
         self._c_puct = main_params.c_puct
         self._n_playout = main_params.num_sims
@@ -115,7 +118,7 @@ class MCTS(object):
         # with the default temp=1e-3, it is almost equivalent
         # to choosing the move with the highest prob
             
-        self.translation = Translation(tgt=tgt_tensor, vocab=main_params.tgt_vocab_stoi)
+        self.translation = Translation(tgt=tgt_tensor, vocab=main_params.tgt_vocab_itos)
         self.is_training = main_params.is_training #lets us know if on train set            
 
     def _playout(self, state):
@@ -136,26 +139,37 @@ class MCTS(object):
 
         # Check for end of translation 
         end, bleu = state.translation_end()
-        if not end or not self.is_training:
+
+        if not node._V is None:
+            leaf_value = node._V 
+
+        elif (not end or not self.is_training) and not ((end or len(state.output)==self.max_len)and self.is_training):
             
             #HERE is where we call gather with group containing model
             #want to send main process our output so far padded
-            padded_output = np.zeros(max_len+1)*globalsFile.BLANK_WORD_ID
-            padded_output[:len(self.translation.output)]=self.translation.output
+            padded_output = torch.ones(self.max_len+1)*globalsFile.BLANK_WORD_ID
+            padded_output[:len(self.translation.output)]= self.translation.output
             padded_output[-1] = len(self.translation.output)
+            #print('Sending gatherer: ',padded_output[:15])
             dist.gather(tensor=padded_output,gather_list=None, dst=0,group=self.group) #send to process 2
 
+            model_response = torch.ones(2*self.num_children + 1).double()
             dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)
-            top_actions = model_response[:self.num_children]
+            top_actions = model_response[:self.num_children].long()
+            #print('Top actions received',top_actions[:15])
             top_probs = model_response[self.num_children:-1]
             leaf_value = model_response[-1]
             if not end and len(state.output)<self.max_len:
+                assert(len(top_actions)==self.num_children)
+                #print('expanding at new state: ',state.output)
                 node.expand(top_actions,top_probs)
            
         else:
+            #print('USING BLEU')
             leaf_value = bleu
         
         # Update value and visit count of nodes in this traversal
+        node._V = leaf_value
         node.update_recursive(leaf_value)
 
 
@@ -182,30 +196,24 @@ class MCTS(object):
         act_probs = softmax(1.0/self.temperature * np.log(np.array(visits) + 1e-10))
         return acts, act_probs
 
-    def update_with_move(self, last_move):
-        """Step forward in the tree, keeping everything we already know
-        about the subtree.
-        """
-        if last_move in self._root._children:
-            self._root = self._root._children[last_move]
-            self._root._parent = None
-        else:
-            self._root = TreeNode(None, 1.0)
-
-    def get_action(self, return_prob=0):
+    
+    def get_action(self):
         end, bleu = self.translation.translation_end()
         # the pi vector returned by MCTS as in the alphaGo Zero paper
     
-        word_probs = np.zeros(len(self.translation.vocab))
         if not end:
             acts, probs = self.get_move_probs() # output vocab size
-            word_probs[list(acts)] = probs
-
+            
             sum_prob = np.sum([node._P for node in self._root._children.values()])
             
             word_id = np.random.choice(acts, p=probs)
-            self.update_with_move(word_id) #move root to this child
-            word = translation.word_index_to_str(word_id)  
+            #move root to this child
+            print('word_id chosen: ',word_id)
+            
+            self._root = self._root._children[word_id]
+            self._root._parent = None
+
+            word = self.translation.word_index_to_str(word_id)  
 
             probs *= sum_prob #scale probs by sum of their priors
 
@@ -225,11 +233,8 @@ class MCTS(object):
             #     word = translation.select_next_word(word_id)
             #     print("system chose word: {}".format(word))
             
+            return word_id, probs, acts
             
-            if return_prob:
-                return word_id, word_probs
-            else:
-                return word
         else:
             print("WARNING: no word left to select")
 
@@ -242,19 +247,21 @@ class MCTS(object):
             bleus_z: list of bleu scores
         """
        
-        print('New MCTS Simulations ...')
-        output_states, mcts_probs, bleu = [], [], -1
+        print('Translating sentence rank: ',self.rankInGroup)
+        output_states, mcts_probs, actions, bleu = [], [],[], -1
         while True:
-            # 55 seconds per loop (100 simulations)
             # start_time = time.time()
-            word_id, word_probs = self.get_action(return_prob=1)                                              
+            word_id, probs, acts = self.get_action()                                              
             # store the data: all we need to store is output since have src in main process
-            output_states.append(self.translation.output)
-            mcts_probs.append(word_probs)
+            output_states.append(self.translation.output.tolist())
+            mcts_probs.append(probs.tolist())
+            
+            actions.append(list(acts))
             # choose a word (perform a move)
+            #print('from translate sentence')
             self.translation.do_move(word_id)
             end, bleu = self.translation.translation_end()
-            
+            print('CURRENT TRANSLATION AFTER CHOICE: ',self.translation.output)
             # print("sentence produced: {}".format(self.translation.vocab[self.translation.output].tolist()))
             # print("time: {:.3f}".format(time.time() - start_time))
 
@@ -266,6 +273,9 @@ class MCTS(object):
                 # print("states len: {}".format(len(states)))
                 # print("mcts_probs collected: {}".format(mcts_probs))
                 # print("mcts_probs len: {}".format(len(mcts_probs)))
+                print('prediction: ')
+                output2 = self.translation.output
+                print([self.translation.vocab[output2[i]] for i in range(len(output2))])
                 predict_tokens = self.translation.vocab[self.translation.output].tolist()
                 source_tokens = self.translation.vocab[self.translation.tgt].tolist()
                 prediction = self.translation.fix_sentence(predict_tokens[1:-1])
@@ -273,7 +283,7 @@ class MCTS(object):
                 print("source: {}".format(source))
                 print("translation: {}".format(prediction))
                 print("bleu: {:.3f}".format(bleu))
-                return bleu, output_states, mcts_probs
+                return bleu, output_states, mcts_probs,actions
 
 
 

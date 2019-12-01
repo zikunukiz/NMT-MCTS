@@ -27,6 +27,13 @@ Now scale probs by their sum of prior probabilities.
 One trick, is to have all processes do one last gather where send completely
 null matrices, and then we have our gpu process exit
 
+
+TO ADD:
+If go to same EOS leaf node over and over, we keep calculating same bleu or 
+value net call, can store value here instead to back up. 
+
+
+
 POSSIBLE PROBLEM:
 Some of the processes will finish before others from needing less calls if somehow continually hit EOS on their sims
 How do we keep track of how many processes are left?

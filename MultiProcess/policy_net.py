@@ -13,6 +13,8 @@ from torch.nn.modules.normalization import LayerNorm
 from torch.autograd import Variable
 import numpy as np
 import math
+import operator
+import globalsFile
 
 def set_learning_rate(optimizer, lr):
     """Sets the learning rate to the given value"""
@@ -111,7 +113,8 @@ class TransformerModel(nn.Module):
 
 class MainParams:
     def __init__(self, dropout, src_vocab_size, tgt_vocab_size, 
-                batch_size,l2_const,c_puct,num_sims,init_temperature):
+                batch_size,l2_const,c_puct,num_sims,temperature,
+                tgt_vocab_itos,num_children,is_training):
         use_gpu = torch.cuda.is_available()
         self.device = torch.device("cuda:0" if use_gpu else "cpu")
         print(self.device)
@@ -121,7 +124,12 @@ class MainParams:
 
         self.batch_size = batch_size
         self.l2_const = l2_const
-        self.c_puct = 
+        self.c_puct = c_puct
+        self.num_sims = num_sims
+        self.tgt_vocab_itos = tgt_vocab_itos
+        self.num_children = num_children
+        self.temperature = temperature 
+        self.is_training = is_training
 
 class PolicyValueNet():
     """policy-value network"""
@@ -132,7 +140,6 @@ class PolicyValueNet():
         self.device = main_params.device
         self.encoder_output = None #keep this when get for this batch for first time
         self.num_children = main_params.num_children
-        print('USING GPU: ',self.use_gpu)
         # the policy net
         policy_net = TransformerModel(**(main_params.model_params))
         # the value net
@@ -143,11 +150,11 @@ class PolicyValueNet():
             self.policy_net = policy_net.to(main_params.device).double()
             self.value_net = value_net.to(main_params.device).double()
         else:
-            self.policy_net = policy_net
-            self.value_net = value_net
+            self.policy_net = policy_net.double()
+            self.value_net = value_net.double()
 
         # load parameters if available
-        if path_to_policy and path_to_value:
+        if not path_to_policy is None  and not path_to_value is None:
             policy_params = torch.load(path_to_policy)
             self.policy_net.load_state_dict(policy_params)
             value_params = torch.load(path_to_value)
@@ -185,7 +192,7 @@ class PolicyValueNet():
                                              memory=self.encoder_output)
             
             log_act_probs = F.log_softmax(policy_output[sentence_lens-1, batch_indices, :], dim=1)
-            print('SHAPE log_act_probs: ',log_act_probs.shape)
+            #print('SHAPE log_act_probs: ',log_act_probs.shape)
 
             #commenting out shared decoder_embedding for now since were 
             #trained with different ones which will throw off the algorithm initially
@@ -193,60 +200,64 @@ class PolicyValueNet():
             #self.value_net.decoder_embedding.weight = nn.Parameter(
             #   self.policy_net.decoder_embedding.weight.clone())
             
-            value_output, encoder_output = self.value_net.forward(src_tensor, dec_input,
+            value_output, self.encoder_output = self.value_net.forward(src_tensor, dec_input,
                                           src_key_padding_mask=src_key_padding_mask,
-                                          tgt_mask=None, tgt_key_padding_mask=None,
+                                          tgt_mask=None, tgt_key_padding_mask=dec_key_padding_mask,
                                           memory_key_padding_mask=src_key_padding_mask,
-                                          memory=encoder_output)
+                                          memory=self.encoder_output)
 
             value_output = torch.sigmoid(value_output[sentence_lens-1, batch_indices, 0])
-            return log_act_probs, value
+            return log_act_probs, value_output
 
     
-    def train_step(self, source, translation, mcts_probs, bleu_batch, lr):
-        """perform a training step"""
-        # wrap in Variable
-        if self.use_gpu:
-            source = Variable(
-                torch.from_numpy(source.reshape(-1, 1))).to(self.device)
-            translation = Variable(
-                torch.from_numpy(translation.reshape(-1, 1))).to(self.device)  
-            mcts_probs = Variable(
-                torch.from_numpy(mcts_probs)).to(self.device)
-            bleu_batch = Variable(
-                torch.from_numpy(bleu_batch)).to(self.device)
-
-        # zero the parameter gradients
+    '''
+    Each mcts_probs only has about 200 and actions contains the actions
+    that those 200 probs correspond to.
+    '''
+    def train_step(self, src_input, dec_input, mcts_probs, actions,bleus):
+        
         self.policy_optimizer.zero_grad()
         self.value_optimizer.zero_grad()
-        # set learning rate
-        set_learning_rate(self.policy_optimizer, lr)
-        set_learning_rate(self.value_optimizer, lr)
 
-        # forward pass
-        log_act_probs, value, encoder_output = self.policy_value_train(source, translation, req_grad=True)
+        if self.use_gpu:
+            src_input = src_input.to(self.device)
+            dec_input = dec_input.to(self.device)
+            mcts_probs = mcts_probs.to(self.device)
+            actions = actions.to(self.device)                
+            bleus = bleus.to(self.device)
 
-        # if self.use_gpu:
-        #     log_act_probs = Variable(
-        #         torch.from_numpy(log_act_probs)).to(self.device)
-        #     value = Variable(torch.from_numpy(value)).to(self.device)
+        #this will give first index where Blank
+        sentence_lens = np.argmax((dec_input==globalsFile.BLANK_WORD_ID),0)
+
+        # forward pass : args: src_tensor, dec_input, sentence_lens,req_grad
+        log_act_probs, value = self.forward(src_input, dec_input, sentence_lens,req_grad=True)
+        #value is just array of value per element in batch
+        #log_act_probs has shape (batch_size,vocab_size)
         
+        log_probs = torch.cat([log_act_probs[i,:][actions[:,i]].view(1,-1) for i in range(src_input.shape[1])],0)
+        #log_probs has shape (batch_size,num_children=200)
+
+        #MAKE SURE PROPER MATRIX MULTIPLICATION
+        term1 = (bleus-value)**2
+        
+        log_probs = log_probs.unsqueeze(1)
+        mcts_probs = mcts_probs.transpose(0,1).unsqueeze(2)
+        #print('shape log_probs: {}, mcts_probs: {}'.format(log_probs.shape,mcts_probs.shape))
+        
+        term2 = - torch.bmm(log_probs, mcts_probs).squeeze()
+        #print('shape term1: {}, term2: {}'.format(term1.shape,term2.shape))
+        loss = ((bleus-value)**2 - log_probs@mcts_probs).mean()
+        
+        #for now L2 already incorporated in Adam (may not need any 
+        #at all since using dropout)
         # define the loss = (z - v)^2 - pi^T * log(p) + c||theta||^2
-        # Note: the L2 penalty is incorporated in optimizer
-        value_loss = F.mse_loss(value.view(-1), bleu_batch)
-        # TODO support batch dimensions (right now only 1 data point)
-
-        # print(mcts_probs.shape, log_act_probs.shape)
-
-        policy_loss = - torch.dot(mcts_probs.view(-1), log_act_probs.view(-1))
-        loss = value_loss + policy_loss
+        
         # backward and optimize
         loss.backward()
         self.policy_optimizer.step()
         self.value_optimizer.step()
-        # calc policy entropy, for monitoring only
-        entropy = - torch.dot(torch.exp(log_act_probs.view(-1)), log_act_probs.view(-1))
-        return loss.item(), entropy.item()
+        
+        return loss.item()
 
     def get_param(self):
         policy_net_params = self.policy_net.state_dict()

@@ -15,9 +15,9 @@ import globalsFile
 class Translation(object):
     def __init__(self, tgt, vocab, **kwargs,):
         
-        self.vocab = np.array(vocab)
-        self.tgt = np.array(tgt)  # list of indices
-        self.output = np.array([2]) # index in the vocab
+        self.vocab = np.array(vocab) #vocab is just a list not a dict
+        self.tgt = tgt  # list of indices
+        self.output = torch.tensor([2]) # index in the vocab
         self.last_word_id = globalsFile.BOS_WORD_ID
 
     def word_index_to_str(self, word_id):
@@ -26,8 +26,8 @@ class Translation(object):
     def do_move(self, word_id):  # can change name to choose_word
         # word_id is the index in the vocab
         self.last_word_id = word_id
-        self.output = np.append(self.output, word_id)
-
+        self.output = torch.cat((self.output, torch.tensor([word_id])),0)
+        
     def translation_end(self,forceGetBleu=False):
         """Check whether the translation is ended or not"""
         if self.last_word_id == globalsFile.EOS_WORD_ID or forceGetBleu:
@@ -49,7 +49,7 @@ class Translation(object):
             else:
                 pred_sentence = self.fix_sentence(predict_tokens,as_str=True)
                 ref_sentence = self.fix_sentence(ref_tokens,as_str=True)
-                bleu = sacrebleu.corpus_bleu([prediction], [[reference]], smooth_method='exp').score / 100
+                bleu = sacrebleu.corpus_bleu([pred_sentence], [[ref_sentence]], smooth_method='exp').score / 100
             
             # print("reference: {}".format(reference))
             # print("prediction: {}".format(prediction))

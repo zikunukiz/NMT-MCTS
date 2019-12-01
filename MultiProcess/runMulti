@@ -1,0 +1,2 @@
+lsof -t -i tcp:29500 | xargs kill
+python runMultiThread.py

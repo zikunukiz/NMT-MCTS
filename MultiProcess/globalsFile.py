@@ -2,12 +2,13 @@
 import os
 
 BASEPATH = '/'.join(os.getcwd().split('/')[:-1])
+CODEPATH = BASEPATH + '/MultiProcess/'
 MODELPATH = BASEPATH + '/savedModels/'
-DATAPATH = os.getcwd() + '/iwsltTokenizedData'
+DATAPATH = BASEPATH + '/iwsltTokenizedData'
 BOS_WORD = '<s>'
 EOS_WORD = '</s>'
 BLANK_WORD = "<blank>"
-BATCHSIZE = 1
+BATCHSIZE = 2
 USEBLEU1 = False
 BOS_WORD_ID = 2
 EOS_WORD_ID = 3
