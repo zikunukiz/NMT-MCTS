@@ -63,7 +63,7 @@ class TreeNode:
         
         u = (c_puct*self._priors*np.sqrt(parent_num_visits) / (1 + self._n_visits))
         val,indice = torch.max(u+self._Q, 0)
-        best_action = self._actions[indice.item()]
+        best_action = self._actions[indice.item()].item()
         return (best_action,self._children[best_action])    
     
     def backup(self,leaf_value):
@@ -115,7 +115,7 @@ class MCTS(object):
         the leaf and propagating it back through its parents.
         State is modified in-place, so a copy must be provided.
         """
-        playout_t1 = time.time()
+        #playout_t1 = time.time()
         node = self._root
         while(1):
             if node.is_leaf() or state.output[-1] == globalsFile.EOS_WORD_ID:
@@ -166,8 +166,8 @@ class MCTS(object):
         
         node.backup(leaf_value)
         
-        playout_t2 = time.time()-playout_t1
-        print('Time for playout: ',playout_t2)
+        #playout_t2 = time.time()-playout_t1
+        #print('Time for playout: ',playout_t2)
 
     def get_move_probs(self):
         """Run all playouts sequentially and return the available actions and
@@ -189,7 +189,7 @@ class MCTS(object):
         
         # print("simluations finished")
         # calc the move probabilities based on visit counts at the root node
-        act_probs = F.softmax(1.0/self.temperature * torch.log(self._root._n_visits) + 1e-10)
+        act_probs = F.softmax(1.0/self.temperature * torch.log(self._root._n_visits) + 1e-10, dim=0)
 
         return self._root._actions, act_probs
 
