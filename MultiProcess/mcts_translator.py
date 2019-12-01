@@ -13,28 +13,24 @@ import torch.distributed as dist
 import globalsFile
 from translate import *
 import time
-
-def softmax(x):
-    probs = np.exp(x - np.max(x))
-    probs /= np.sum(probs)
-    return probs
+import torch.nn.functional as F
 
 
-class TreeNode(object):
-    """A node in the MCTS tree.
-    Each node keeps track of its own value Q, prior probability P, and
-    its visit-count-adjusted prior score u.
-    """
+#remaking TreeNodes to speed things up.
+#now TreeNode just has parent and dict to children but also 
+#has several fields which now correspond to the edges leaving this node
+#and can store as arrays which will speed up playouts
 
-    def __init__(self, parent, prior_p):
+class TreeNode:
+    def __init__(self,parent,parent_ind_action_taken):
         self._parent = parent
-        self._children = {}  # a map from action to TreeNode
-        self._n_visits = 0 # number of times this TreeNode has been visited
-        # TO DO rescale by 0.95 (the aggregate prob from the 200 words)
-        self._Q = 0 # the mean value of the next state
-        self._u = 0
-        self._V = None  #keep value at this node so can reuse if we end up here again and it's EOS or maxlen
-        self._P = prior_p
+        self.parent_ind_action_taken = parent_ind_action_taken #is index of action in parent action vector taken from parent to get here
+        self._children = {} #dictionary action->TreeNode
+        self._n_visits = None #number of visits to each of it's branches
+        self._actions = None #array of actions that the edges correspond to
+        self._priors = None #prior probs that the edges correspond to 
+        self._Q = None #Q values of edges
+        self._V = None #is value computed for this state
 
     def expand(self,top_actions,top_probs):
         """Expand tree by creating new children.
@@ -42,34 +38,42 @@ class TreeNode(object):
             according to the policy function.
         """   
         assert(len(self._children)==0)
-        for i in range(len(top_actions)):
-            action = top_actions[i].clone().detach().item()
-            prob = top_probs[i] 
-            #print(action)
-            assert(action not in self._children)
-            self._children[action] = TreeNode(self, prob)
-
+        actions_copy = top_actions.clone().detach()
+        top_probs_cpy = top_probs.clone().detach()
+        for ind,a in enumerate(actions_copy):
+            self._children[a.item()] = TreeNode(self,ind)
+        
+        self._priors = top_probs_cpy
+        self._actions = actions_copy
+        self._n_visits = torch.zeros(len(actions_copy))
+        self._Q = torch.zeros(len(actions_copy))
+        
     def select(self, c_puct):
+        
+
         """Select action among children that gives maximum action value Q
         plus bonus u(P).
         Return: A tuple of (action, next_node)
         """
-        return max(self._children.items(),
-                   key=lambda act_node: act_node[1].get_value(c_puct))
-
+        parent_num_visits = None
+        if self._parent is None:
+            parent_num_visits = (1 + self._n_visits) 
+        else:
+            parent_num_visits = self._parent._n_visits[self.parent_ind_action_taken]
+        
+        u = (c_puct*self._priors*np.sqrt(parent_num_visits) / (1 + self._n_visits))
+        val,indice = torch.max(u+self._Q, 0)
+        best_action = self._actions[indice.item()]
+        return (best_action,self._children[best_action])    
     
+    def backup(self,leaf_value):
+        node = self
+        while(node._parent):
+            act_ind = node.parent_ind_action_taken
+            node = node._parent
+            node._n_visits[act_ind] += 1
+            node._Q[act_ind] += (leaf_value - node._Q[act_ind]) / node._n_visits[act_ind]
 
-    def get_value(self, c_puct):
-        """Calculate and return the value for this node.
-        It is a combination of leaf evaluations Q, and this node's prior
-        adjusted for its visit count, u.
-        c_puct: a number in (0, inf) controlling the relative impact of
-            value Q, and prior probability P, on this node's score.
-            It is a hyperparameter that controls exporation vs. exploitation
-        """
-        self._u = (c_puct * self._P *
-                   np.sqrt(self._parent._n_visits) / (1 + self._n_visits))
-        return self._Q + self._u
 
     def is_leaf(self):
         """Check if leaf node (i.e. no nodes below this have been expanded)."""
@@ -77,6 +81,7 @@ class TreeNode(object):
 
     def is_root(self):
         return self._parent is None
+
 
 
 
@@ -94,7 +99,7 @@ class MCTS(object):
         self.group = group
         self.max_len = max_len #max translation length (need to path our tensors up to this for interprocess communication)
         self.rankInGroup =rankInGroup#is way of identifying this process in the group
-        self._root = TreeNode(None, 1.0)
+        self._root = TreeNode(None, 1)
         self._c_puct = main_params.c_puct
         self._n_playout = main_params.num_sims
         self.num_children = main_params.num_children
@@ -159,11 +164,7 @@ class MCTS(object):
         # Update value and visit count of nodes in this traversal
         node._V = leaf_value
         
-        while(node._parent):
-            node = node._parent
-            node._n_visits += 1
-            node._Q += (leaf_value - node._Q) / node._n_visits 
-
+        node.backup(leaf_value)
         
         playout_t2 = time.time()-playout_t1
         print('Time for playout: ',playout_t2)
@@ -188,11 +189,9 @@ class MCTS(object):
         
         # print("simluations finished")
         # calc the move probabilities based on visit counts at the root node
-        act_visits = [(act, node._n_visits)
-                      for act, node in self._root._children.items()]
-        acts, visits = zip(*act_visits)
-        act_probs = softmax(1.0/self.temperature * np.log(np.array(visits) + 1e-10))
-        return acts, act_probs
+        act_probs = F.softmax(1.0/self.temperature * torch.log(self._root._n_visits) + 1e-10)
+
+        return self._root._actions, act_probs
 
     
     def get_action(self):
@@ -201,8 +200,7 @@ class MCTS(object):
     
         if not end:
             acts, probs = self.get_move_probs() # output vocab size
-            
-            sum_prob = np.sum([node._P for node in self._root._children.values()])
+            sum_prob = self._root._priors.sum()
             
             word_id = np.random.choice(acts, p=probs)
             #move root to this child
@@ -255,7 +253,7 @@ class MCTS(object):
             output_states.append(self.translation.output.tolist())
             mcts_probs.append(probs.tolist())
             
-            actions.append(list(acts))
+            actions.append(acts.tolist())
             # choose a word (perform a move)
             #print('from translate sentence')
             self.translation.do_move(word_id)

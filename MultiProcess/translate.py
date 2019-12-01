@@ -31,6 +31,7 @@ class Translation(object):
     def translation_end(self,forceGetBleu=False):
         """Check whether the translation is ended or not"""
         if self.last_word_id == globalsFile.EOS_WORD_ID or forceGetBleu:
+        
             # revert tokenization back to strings
             predict_tokens = self.vocab[self.output].tolist()
             ref_tokens = self.vocab[self.tgt].tolist()
