@@ -174,7 +174,7 @@ if __name__ == '__main__':
                   tgt_vocab_size=len(eng_vocab), batch_size=5,l2_const=1e-4,
                   c_puct=0.5,num_sims=100,temperature=1e-3,
                   tgt_vocab_itos=dataset_dict['TGT'].vocab.itos,
-                  num_children=200,is_training=False)
+                  num_children=50,is_training=False)
 
 
 	policy_path = globalsFile.MODELPATH + 'policy_supervised_RLTrained.pt'
@@ -191,6 +191,7 @@ if __name__ == '__main__':
 		sentences_processed = 0
 		for batch_count, batch in enumerate(dataset_dict[data_iter]):
 			#print('src shape: {}, tgt shape: {}'.format(vars(batch)['de'].shape,vars(batch)['en'].shape))
+			
 			src_tensor = vars(batch)['de'] #will be (S,batch_size) where S is max num tokens of sentence in this batch
 			trg_tensor = vars(batch)['en'] 
 			sentences_processed += src_tensor.shape[1]
@@ -206,11 +207,11 @@ if __name__ == '__main__':
 			print('sentence len: ',src_tensor.shape[0])
 			starting_time = time.time()
 			
-			#try: 
-			torch.multiprocessing.spawn(init_processes,
+			try: 
+				torch.multiprocessing.spawn(init_processes,
 						args=(size,src_tensor,trg_tensor,network,main_params),
 						nprocs=size)
-			'''
+			
 			except Exception as e:
 				if (str(e)=='process 0 terminated with exit code 1'):
 					#this is how we wanted to terminate
@@ -218,7 +219,7 @@ if __name__ == '__main__':
 				else:
 					print('EXITING IN BAD SCENARIO')
 					exit(1)
-			'''
+			
 			print('sentence len: ',src_tensor.shape[0])
 			print('totalTime: ',time.time()-starting_time)
 

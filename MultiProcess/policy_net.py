@@ -225,15 +225,16 @@ class PolicyValueNet():
         self.policy_optimizer.zero_grad()
         self.value_optimizer.zero_grad()
 
+        #this will give first index where Blank
+        sentence_lens = np.argmax((dec_input==globalsFile.BLANK_WORD_ID),0)
+
         src_input = src_input.to(self.device)
         dec_input = dec_input.to(self.device)
         mcts_probs = mcts_probs.to(self.device)
         actions = actions.to(self.device)                
         bleus = bleus.to(self.device)
 
-        #this will give first index where Blank
-        sentence_lens = np.argmax((dec_input==globalsFile.BLANK_WORD_ID),0)
-
+        
         # forward pass : args: src_tensor, dec_input, sentence_lens,req_grad
         log_act_probs, value = self.forward(src_input, dec_input, sentence_lens,req_grad=True)
         #value is just array of value per element in batch
