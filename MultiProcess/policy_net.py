@@ -172,8 +172,14 @@ class PolicyValueNet():
         sentence_lens: is length of each sentence in dec_input when no padding,
                         these are the indices we'll be trying to get from dec_output.
                         Actually subtract 1 from these. 
-
+  
         """
+        
+        src_tensor = src_tensor.to(self.device)
+        dec_input = dec_input.to(self.device)
+        sentence_lens = sentence_lens.to(self.device)
+        
+       
         if req_grad:
             self.policy_net.train()
             self.value_net.train()
@@ -183,7 +189,7 @@ class PolicyValueNet():
 
         src_key_padding_mask = (src_tensor == 1).transpose(0, 1)
         dec_key_padding_mask = (dec_input==1).transpose(0,1)
-        batch_indices = np.arange(src_tensor.shape[1])
+        batch_indices = torch.tensor(np.arange(src_tensor.shape[1])).to(self.device)
         with torch.set_grad_enabled(req_grad):
             policy_output, self.encoder_output = self.policy_net.forward(src_tensor, dec_input,
                                              src_key_padding_mask=src_key_padding_mask,
@@ -219,12 +225,11 @@ class PolicyValueNet():
         self.policy_optimizer.zero_grad()
         self.value_optimizer.zero_grad()
 
-        if self.use_gpu:
-            src_input = src_input.to(self.device)
-            dec_input = dec_input.to(self.device)
-            mcts_probs = mcts_probs.to(self.device)
-            actions = actions.to(self.device)                
-            bleus = bleus.to(self.device)
+        src_input = src_input.to(self.device)
+        dec_input = dec_input.to(self.device)
+        mcts_probs = mcts_probs.to(self.device)
+        actions = actions.to(self.device)                
+        bleus = bleus.to(self.device)
 
         #this will give first index where Blank
         sentence_lens = np.argmax((dec_input==globalsFile.BLANK_WORD_ID),0)

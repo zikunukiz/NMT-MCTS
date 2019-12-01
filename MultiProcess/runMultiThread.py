@@ -156,6 +156,7 @@ def init_processes(rank,numProcesses,src_tensor,trg_tensor,modelToPass,main_para
 	if rank == 0:
 		main_func(numProcesses,groupMCTS,src_tensor,maxlen,modelToPass)
 	else:
+		modelToPass = None
 		run(rank,numProcesses,groupMCTS,maxlen,main_params,trg_tensor[:,rank-1])
 
 
@@ -171,15 +172,15 @@ if __name__ == '__main__':
 	src_vocab_size = len(dataset_dict['SRC'].vocab.itos)
 	main_params = MainParams(dropout=0.2, src_vocab_size=src_vocab_size,
                   tgt_vocab_size=len(eng_vocab), batch_size=5,l2_const=1e-4,
-                  c_puct=5,num_sims=10,temperature=1e-3,
+                  c_puct=0.5,num_sims=100,temperature=1e-3,
                   tgt_vocab_itos=dataset_dict['TGT'].vocab.itos,
                   num_children=200,is_training=False)
 
 
 	policy_path = globalsFile.MODELPATH + 'policy_supervised_RLTrained.pt'
 	value_path = globalsFile.MODELPATH + 'value_supervised_RLTrained.pt'
-	policy_path = None
-	value_path = None #want to use cpu for now
+	#policy_path = None
+	#value_path = None #want to use cpu for now
 	network = PolicyValueNet(main_params=main_params,path_to_policy=policy_path,
 							path_to_value=value_path)
 	
@@ -195,8 +196,8 @@ if __name__ == '__main__':
 			sentences_processed += src_tensor.shape[1]
 			
 			#REMOVE THIS
-			#if src_tensor.shape[0] > 4:
-			#		continue
+			#if src_tensor.shape[0] > 10:
+			#	continue
 
 			main_params.is_training = True if 'train' in data_iter else False
 			
@@ -205,11 +206,11 @@ if __name__ == '__main__':
 			print('sentence len: ',src_tensor.shape[0])
 			starting_time = time.time()
 			
-			try: 
-				torch.multiprocessing.spawn(init_processes,
+			#try: 
+			torch.multiprocessing.spawn(init_processes,
 						args=(size,src_tensor,trg_tensor,network,main_params),
 						nprocs=size)
-			
+			'''
 			except Exception as e:
 				if (str(e)=='process 0 terminated with exit code 1'):
 					#this is how we wanted to terminate
@@ -217,7 +218,7 @@ if __name__ == '__main__':
 				else:
 					print('EXITING IN BAD SCENARIO')
 					exit(1)
-			
+			'''
 			print('sentence len: ',src_tensor.shape[0])
 			print('totalTime: ',time.time()-starting_time)
 

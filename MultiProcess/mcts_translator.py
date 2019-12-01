@@ -12,6 +12,7 @@ from torch.autograd import Variable
 import torch.distributed as dist
 import globalsFile
 from translate import *
+import time
 
 def softmax(x):
     probs = np.exp(x - np.max(x))
@@ -56,24 +57,7 @@ class TreeNode(object):
         return max(self._children.items(),
                    key=lambda act_node: act_node[1].get_value(c_puct))
 
-    def update(self, leaf_value):
-        """Update node values from leaf evaluation.
-        leaf_value: the value of subtree evaluation from the current player's
-            perspective.
-        """
-        # Count visit.
-        self._n_visits += 1
-
-        # Update Q, a running average of values for all visits.
-        self._Q += 1.0*(leaf_value - self._Q) / self._n_visits 
-
-    def update_recursive(self, leaf_value):
-        """Like a call to update(), but applied recursively for all ancestors.
-        """
-        # If it is not root, this node's parent should be updated first.
-        if self._parent:
-            self._parent.update_recursive(leaf_value)
-        self.update(leaf_value)
+    
 
     def get_value(self, c_puct):
         """Calculate and return the value for this node.
@@ -126,6 +110,7 @@ class MCTS(object):
         the leaf and propagating it back through its parents.
         State is modified in-place, so a copy must be provided.
         """
+        playout_t1 = time.time()
         node = self._root
         while(1):
             if node.is_leaf() or state.output[-1] == globalsFile.EOS_WORD_ID:
@@ -136,42 +121,52 @@ class MCTS(object):
             
         # print("output: {}".format(state.output.tolist()))
 
-
-        # Check for end of translation 
-        end, bleu = state.translation_end()
-
+        
         if not node._V is None:
             leaf_value = node._V 
 
-        elif (not end or not self.is_training) and not ((end or len(state.output)==self.max_len)and self.is_training):
-            
-            #HERE is where we call gather with group containing model
-            #want to send main process our output so far padded
-            padded_output = torch.ones(self.max_len+1)*globalsFile.BLANK_WORD_ID
-            padded_output[:len(self.translation.output)]= self.translation.output
-            padded_output[-1] = len(self.translation.output)
-            #print('Sending gatherer: ',padded_output[:15])
-            dist.gather(tensor=padded_output,gather_list=None, dst=0,group=self.group) #send to process 2
-
-            model_response = torch.ones(2*self.num_children + 1).double()
-            dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)
-            top_actions = model_response[:self.num_children].long()
-            #print('Top actions received',top_actions[:15])
-            top_probs = model_response[self.num_children:-1]
-            leaf_value = model_response[-1]
-            if not end and len(state.output)<self.max_len:
-                assert(len(top_actions)==self.num_children)
-                #print('expanding at new state: ',state.output)
-                node.expand(top_actions,top_probs)
-           
         else:
-            #print('USING BLEU')
-            leaf_value = bleu
+            # Check for end of translation 
+            end, bleu = state.translation_end()
+
+            if (not end or not self.is_training) and not ((end or len(state.output)==self.max_len)and self.is_training):
+
+                #HERE is where we call gather with group containing model
+                #want to send main process our output so far padded
+                padded_output = torch.ones(self.max_len+1)*globalsFile.BLANK_WORD_ID
+                padded_output[:len(self.translation.output)]= self.translation.output
+                padded_output[-1] = len(self.translation.output)
+                #print('Sending gatherer: ',padded_output[:15])
+                dist.gather(tensor=padded_output,gather_list=None, dst=0,group=self.group) #send to process 2
+
+                model_response = torch.ones(2*self.num_children + 1).double()
+                dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)
+
+
+                top_actions = model_response[:self.num_children].long()
+                #print('Top actions received',top_actions[:15])
+                top_probs = model_response[self.num_children:-1]
+                leaf_value = model_response[-1]
+                if not end and len(state.output)<self.max_len:
+                    assert(len(top_actions)==self.num_children)
+                    print('expanding at new state, rank: ',self.rankInGroup)
+                    node.expand(top_actions,top_probs)
+
+            else:
+                #print('USING BLEU')
+                leaf_value = bleu
         
         # Update value and visit count of nodes in this traversal
         node._V = leaf_value
-        node.update_recursive(leaf_value)
+        
+        while(node._parent):
+            node = node._parent
+            node._n_visits += 1
+            node._Q += (leaf_value - node._Q) / node._n_visits 
 
+        
+        playout_t2 = time.time()-playout_t1
+        print('Time for playout: ',playout_t2)
 
     def get_move_probs(self):
         """Run all playouts sequentially and return the available actions and
@@ -184,6 +179,9 @@ class MCTS(object):
             # print("simulation - {}".format(n))
             copy_last_word = copy.deepcopy(self.translation.last_word_id)
             copy_output = copy.deepcopy(self.translation.output)
+            #copy_state = copy.deepcopy(self.translation)
+            #self._playout(copy_state)
+            
             self._playout(self.translation)
             self.translation.last_word_id = copy_last_word
             self.translation.output = copy_output
@@ -208,7 +206,7 @@ class MCTS(object):
             
             word_id = np.random.choice(acts, p=probs)
             #move root to this child
-            print('word_id chosen: ',word_id)
+            #print('word_id chosen: ',word_id)
             
             self._root = self._root._children[word_id]
             self._root._parent = None
@@ -251,6 +249,7 @@ class MCTS(object):
         output_states, mcts_probs, actions, bleu = [], [],[], -1
         while True:
             # start_time = time.time()
+            trans_start_time = time.time()
             word_id, probs, acts = self.get_action()                                              
             # store the data: all we need to store is output since have src in main process
             output_states.append(self.translation.output.tolist())
@@ -261,7 +260,8 @@ class MCTS(object):
             #print('from translate sentence')
             self.translation.do_move(word_id)
             end, bleu = self.translation.translation_end()
-            print('CURRENT TRANSLATION AFTER CHOICE: ',self.translation.output)
+            print('time for word: ',time.time()-trans_start_time)
+            print('CURRENT TRANSLATION Rank: {}: {}'.format(self.rankInGroup,self.translation.output))
             # print("sentence produced: {}".format(self.translation.vocab[self.translation.output].tolist()))
             # print("time: {:.3f}".format(time.time() - start_time))
 
@@ -286,8 +286,4 @@ class MCTS(object):
                 return bleu, output_states, mcts_probs,actions
 
 
-
-
-    def __str__(self):
-        return "MCTS"
 
