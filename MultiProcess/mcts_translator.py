@@ -104,6 +104,7 @@ class MCTS(object):
         self._n_playout = main_params.num_sims
         self.num_children = main_params.num_children
         self.temperature = main_params.temperature 
+        self.time_last_scatter = 0 #want to make sure never go mroe than 0.5 seconds without scattering so other processes don't wait on this
         # with the default temp=1e-3, it is almost equivalent
         # to choosing the move with the highest prob
             
@@ -146,7 +147,7 @@ class MCTS(object):
 
                 model_response = torch.ones(2*self.num_children + 1).double()
                 dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)
-
+                self.time_last_scatter = time.time()
 
                 top_actions = model_response[:self.num_children].long()
                 #print('Top actions received',top_actions[:15])
@@ -187,6 +188,14 @@ class MCTS(object):
             self.translation.last_word_id = copy_last_word
             self.translation.output = copy_output
         
+        if time.time() - self.time_last_scatter > globalsFile.MAX_TIME_BETWEEN_SCATTERS:
+            #do a fake gather and scatter
+            padded_output = torch.zeros(self.max_len+1)*globalsFile.BLANK_WORD_ID
+            dist.gather(tensor=padded_output,gather_list=None, dst=0,group=self.group) #send to process 2
+            model_response = torch.ones(2*self.num_children + 1).double()
+            dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)
+            self.time_last_scatter = time.time()
+
         # print("simluations finished")
         # calc the move probabilities based on visit counts at the root node
         act_probs = F.softmax(1.0/self.temperature * torch.log(self._root._n_visits) + 1e-10, dim=0)

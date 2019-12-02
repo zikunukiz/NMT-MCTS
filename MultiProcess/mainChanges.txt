@@ -1,0 +1,40 @@
+
+Seperating the policy model from the classes so that it isn't copied
+process to process. 
+
+Change his method of initializing encoder_output
+Make sure only using top 200 words and that normalize after and 
+just use cross entropy
+
+
+No need to have MCTS Translator seperate from MCTS
+since get_action may as well be part of it
+
+
+I think way simpler to have more inside MCTS (also have it run til 
+completion of sentence and store results within)
+
+Now before even creating all the processes, feed the batch from train_iter through the encoder and store these encoder results in that process to reuse later. 
+
+The creater of the processes can be part of the group as well ***
+
+changing so that don't backup BLEU during validation
+Enforcing we don't simulate past max_len 
+
+Now scale probs by their sum of prior probabilities. 
+
+
+One trick, is to have all processes do one last gather where send completely
+null matrices, and then we have our gpu process exit
+
+
+TO ADD:
+If go to same EOS leaf node over and over, we keep calculating same bleu or 
+value net call, can store value here instead to back up. 
+
+
+
+POSSIBLE PROBLEM:
+Some of the processes will finish before others from needing less calls if somehow continually hit EOS on their sims
+How do we keep track of how many processes are left?
+
