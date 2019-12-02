@@ -159,7 +159,15 @@ class PolicyValueNet():
             self.policy_net.load_state_dict(policy_params)
             value_params = torch.load(path_to_value)
             self.value_net.load_state_dict(value_params)
-
+        
+        #now set any field in these Models that isn't used to None
+        self.value_net.encoder_layer = None
+        self.value_net.encoder_norm = None
+        self.value_net.encoder = None
+        self.value_net.transformer = None
+        
+        self.policy_net.transformer = None
+            
         # optimizer
         self.policy_optimizer = optim.Adam(
             self.policy_net.parameters(), weight_decay=self.l2_const)
@@ -221,6 +229,9 @@ class PolicyValueNet():
     that those 200 probs correspond to.
     '''
     def train_step(self, src_input, dec_input, mcts_probs, actions,bleus):
+        
+        if not self.encoder_output is None:
+            self.encoder_output = self.encoder_output.clone().detach()
         
         self.policy_optimizer.zero_grad()
         self.value_optimizer.zero_grad()

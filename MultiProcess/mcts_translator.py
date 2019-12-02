@@ -190,7 +190,7 @@ class MCTS(object):
         
         if time.time() - self.time_last_scatter > globalsFile.MAX_TIME_BETWEEN_SCATTERS:
             #do a fake gather and scatter
-            padded_output = torch.zeros(self.max_len+1)*globalsFile.BLANK_WORD_ID
+            padded_output = torch.ones(self.max_len+1)*5 #don't want main process thinking we want to terminate. 
             dist.gather(tensor=padded_output,gather_list=None, dst=0,group=self.group) #send to process 2
             model_response = torch.ones(2*self.num_children + 1).double()
             dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)

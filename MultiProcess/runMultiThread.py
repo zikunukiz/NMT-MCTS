@@ -78,7 +78,8 @@ def main_func(numProcesses,group,src_tensor,maxlen,model):
 		#assert(min(dec_lengths) > 0)
 		max_gathered_len = int(dec_lengths.max().item())
 		if max_gathered_len == 0:
-			#for some reason last scatter not seen by other processes so best 
+			print('max gathered len is 0')
+            #for some reason last scatter not seen by other processes so best 
 			#way to shut them all down is throw exception which returns 
 			#control our main function.
 			exit(1) 
@@ -172,7 +173,7 @@ if __name__ == '__main__':
 	src_vocab_size = len(dataset_dict['SRC'].vocab.itos)
 	main_params = MainParams(dropout=0.2, src_vocab_size=src_vocab_size,
                   tgt_vocab_size=len(eng_vocab), batch_size=5,l2_const=1e-4,
-                  c_puct=0.5,num_sims=100,temperature=1e-3,
+                  c_puct=0.5,num_sims=1000,temperature=1e-3,
                   tgt_vocab_itos=dataset_dict['TGT'].vocab.itos,
                   num_children=50,is_training=False)
 
@@ -197,8 +198,8 @@ if __name__ == '__main__':
 			sentences_processed += src_tensor.shape[1]
 			
 			#REMOVE THIS
-			#if src_tensor.shape[0] > 10:
-			#	continue
+			if src_tensor.shape[0] < 40:
+				continue
 
 			main_params.is_training = True if 'train' in data_iter else False
 			
@@ -207,19 +208,21 @@ if __name__ == '__main__':
 			print('sentence len: ',src_tensor.shape[0])
 			starting_time = time.time()
 			
-			try: 
-				torch.multiprocessing.spawn(init_processes,
+			#try: 
+			torch.multiprocessing.spawn(init_processes,
 						args=(size,src_tensor,trg_tensor,network,main_params),
 						nprocs=size)
 			
-			except Exception as e:
+			'''
+            except Exception as e:
 				if (str(e)=='process 0 terminated with exit code 1'):
 					#this is how we wanted to terminate
 					pass
 				else:
 					print('EXITING IN BAD SCENARIO')
 					exit(1)
-			
+			'''
+            
 			print('sentence len: ',src_tensor.shape[0])
 			print('totalTime: ',time.time()-starting_time)
 
