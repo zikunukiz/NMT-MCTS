@@ -175,14 +175,21 @@ class PolicyValueNet():
             self.value_net.parameters(), weight_decay=self.l2_const)
 
 
-    def forward(self, src_tensor, dec_input, sentence_lens,req_grad=False):
+    def forward(self, src_tensor, dec_input, processes, sentence_lens,req_grad=False):
         """
         sentence_lens: is length of each sentence in dec_input when no padding,
                         these are the indices we'll be trying to get from dec_output.
                         Actually subtract 1 from these. 
   
+        processes: a tensor which process each column of src_tensor
+                    refers to 
         """
-        
+        processes = processes.to(self.device)
+
+        encoder_output_sliced = None
+        if not self.encoder_output is None:
+            encoder_output_sliced = self.encoder_output[:,processes-1,:]
+
         src_tensor = src_tensor.to(self.device)
         dec_input = dec_input.to(self.device)
         sentence_lens = sentence_lens.to(self.device)
@@ -199,11 +206,11 @@ class PolicyValueNet():
         dec_key_padding_mask = (dec_input==1).transpose(0,1)
         batch_indices = torch.tensor(np.arange(src_tensor.shape[1])).to(self.device)
         with torch.set_grad_enabled(req_grad):
-            policy_output, self.encoder_output = self.policy_net.forward(src_tensor, dec_input,
+            policy_output, encoder_output_sliced = self.policy_net.forward(src_tensor, dec_input,
                                              src_key_padding_mask=src_key_padding_mask,
                                              tgt_mask=None, tgt_key_padding_mask=dec_key_padding_mask,
                                              memory_key_padding_mask=src_key_padding_mask,
-                                             memory=self.encoder_output)
+                                             memory=encoder_output_sliced)
             
             log_act_probs = F.log_softmax(policy_output[sentence_lens-1, batch_indices, :], dim=1)
             #print('SHAPE log_act_probs: ',log_act_probs.shape)
@@ -214,11 +221,17 @@ class PolicyValueNet():
             #self.value_net.decoder_embedding.weight = nn.Parameter(
             #   self.policy_net.decoder_embedding.weight.clone())
             
-            value_output, self.encoder_output = self.value_net.forward(src_tensor, dec_input,
+            value_output, encoder_output_sliced = self.value_net.forward(src_tensor, dec_input,
                                           src_key_padding_mask=src_key_padding_mask,
                                           tgt_mask=None, tgt_key_padding_mask=dec_key_padding_mask,
                                           memory_key_padding_mask=src_key_padding_mask,
-                                          memory=self.encoder_output)
+                                          memory=encoder_output_sliced)
+
+            if self.encoder_output is None:
+                #make sure first run has all processes and in 
+                #right order
+                print('Set the encoder output')
+                self.encoder_output = encoder_output_sliced.clone()
 
             value_output = torch.sigmoid(value_output[sentence_lens-1, batch_indices, 0])
             return log_act_probs, value_output

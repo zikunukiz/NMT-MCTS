@@ -5,6 +5,7 @@
 
 import torch.distributed as dist
 from torch.multiprocessing import Process
+from torch.multiprocessing import Queue
 import torch
 import os
 import globalsFile
@@ -15,144 +16,109 @@ import time
 import json
 
 
-
-def run(rank,numProcesses,group):
+#rank,numProcesses,group,queue
+def run(rank,group,queue,queue_exit):
 	
 	print('running rank: ',rank)
 
 	#now just continually gather and scatter until scatter gives a 
 	#negative value which means we can exit
 	#and also tell main_func that length is 0
-	while(True):
+	for iteration in range(rank):
 		
-		padded_output = torch.ones(10)*rank
+		padded_output = torch.ones(11)*rank + 1
+		padded_output[-1] = rank
 		print('rank: {}, sending to gather: {}'.format(rank,padded_output))
-	
+		queue.put(padded_output)
 		#this request object has methods: is_completed() and wait()
-		req = dist.isend(tensor=padded_output,dst=0,group=group)
-		req.wait()
-
+		#print('sent to queue')
 		model_response = torch.rand(10)
-		req = dist.irecv(tensor=model_response,src=0,group=group)
+		req = dist.irecv(tensor=model_response,src=0)
 		req.wait()
-		print('scatter rank: {}, given: {}'.format(rank,model_response))
-		
-
-class Manager:
-	#manages the send and received tensors from main process
-	#min_requests means as soon as min_requests requests come in
-	#we run the model with those. 
-	def __init__(self,min_requests,num_workers,len_receive,len_send):
-		self.min_requests = min_requests
-		self.num_workers = num_workers #doesn't count this process
-		self.len_receive = len_receive #is the size of tensors we'll receive
-		self.len_send = len_send 
-		self.to_receive = [torch.zeros(self.len_receive) for i in range(self.num_workers)]
-		self.recv_reqs = []
-		for i in range(self.num_workers):
-			#receive tensor from process with rank i+1
-			self.recv_reqs.append(dist.irecv(tensor=self.to_receive[i],src=i+1))
-
-
-	def gather_recv(self):
-		#spin gathering receivable tensors
-		start_time = time.time() 
-		inds_recv = []
-		while(len(inds_recv) < self.min_requests and time.time()-start_time < 3):
-			inds_recv = []
-
-			#REMEMBER TO REQUEST FROM ONE HIGHER THAN 
-			#this ind since first element corresponds to rank 1
-			for ind,req in enumerate(self.recv_reqs):
-				if req.is_completed():
-					inds_recv.append(ind)
-
-		
-		print('past here: ',len(inds_recv))
-		print(inds_recv)
-
-		if len(inds_recv) > 0:
-			#now use the received tensors and call model with them
-			#and send results back to these processes
-			sent_reqs = []
-			for ind in inds_recv:
-				print('main received from rank: {}, {}'.format(ind+1,self.to_receive[ind]))
-				
-				to_send = self.to_receive[ind].clone()+1
-				req = dist.isend(tensor=to_send,dst=ind+1)
-				sent_reqs.append(req)
-				self.to_receive[ind] = torch.zeros(self.len_receive) #reset this
-
-			while(any([not req.is_completed() for req in sent_reqs])):
-				print('passing here')
-				pass
-
-			#now ask to receive from each of these and do this all again
-			for ind in to_recv:
-				req = dist.irecv(tensor=self.to_receive[ind],src=ind+1)
-				self.recv_reqs[ind] = req
-			
-
-
-			#now run model and send these the results
-			#suppose add one to received
-
-
+		print('rank: {}, received: {}'.format(rank,model_response))
+	
+	print('rank: {}, EXITING'.format(rank))	
+	queue_exit.put([rank])
+	print ('put onto exit queue')
+	exit(0)
 
 #this is where the main process runs
-def main_func(numProcesses,group):
+def main_func(numProcesses,group,queue,queue_exit):
 	print('main func running')
-	
-	torec1 = torch.zeros(10)
-	torec2 = torch.zeros(10)
-	req1 = dist.irecv(tensor=torec1,src=1,group=group)
-	#req1.wait()
-	#req2 = dist.irecv(tensor=torec1,src=2,group=group)
+	starting_time2 = time.time()
+	exited_processes = []
 
-	start_time =time.time()
-	while (time.time() - start_time < 1):# or not req2.is_completed()):
-		pass
+	while(True):
+		#time.sleep(1)
 
-	print('RESULTS')
-	req1.wait()
-	print(req1.is_completed())
-	print('received: {}'.format(torec1))#,torec2))
+		recv_tensors = []
+		#start_time = time.time()
+		while(True):
+			if not queue.empty():
+				rec_tens = queue.get()
+				recv_tensors.append(rec_tens)
+			
+			if len(recv_tensors) > 1 or time.time()-start_time>0.01:
+					break
 
-	#self.recv_reqs.append(dist.irecv(tensor=self.to_receive[i],src=i+1))
+		#print('main received tensors',recv_tensors)
 
-	'''
-	manager = Manager(min_requests=2,num_workers=numProcesses-1,
-						len_receive=10,len_send=10)
+		for r in recv_tensors:
+			#last element corresponds to rank it came from
+			print('sending it back: ',r[:-1].clone()+3)
+			print('destination: ',int(r[-1].item()))
+			dist.isend(tensor=r[:-1].clone()+3,dst=int(r[-1].item()))
+
+		if not queue_exit.empty():
+			exited_processes.append(queue_exit.get())
+
+		#print(len(exited_processes))
+		if len(exited_processes) == numProcesses-1:
+			print('everyones exited')
+			print(time.time()-starting_time2)
+			exit()
 
 
-	manager.gather_recv()
-
-	'''
-	
-
-def init_processes(rank,numProcesses):
-	#using spawn_processes passes process index as first param
-
+def init_processes(rank,numProcesses,queue,queue_exit):
 	#create the processes here then have our workers call one function
-	#and our main process (rank=0) call another
+	#and our main process[0] call another
 	os.environ['MASTER_ADDR'] = '127.0.0.1'
-	os.environ['MASTER_PORT'] = '29501'
-	print('rank: {}, numProcesses: {}'.format(rank,numProcesses))
+	os.environ['MASTER_PORT'] = '29500'
 	dist.init_process_group('gloo', rank=rank, world_size=numProcesses)
-	groupMCTS = dist.new_group([i for i in range(numProcesses)])
-	#groupMCTS = None
-	if rank == 0:
 
-		main_func(numProcesses,groupMCTS)
+	group = dist.new_group([i for i in range(numProcesses)])
+
+	if rank == 0:
+		main_func(numProcesses,group,queue,queue_exit)
+
 	else:
-		run(rank,numProcesses,groupMCTS)
+		run(rank,group,queue,queue_exit)
 
 
 
 if __name__ == '__main__':
 	
 	
-	size = 2	
+	size = 4	
+	queue = Queue()
+	queue_exit = Queue() #processes let main know when they've exited
+	ps = []
+	for rank in range(size):
+		p = Process(target=init_processes,args=(rank,size,queue,queue_exit))
+		p.start()
+		ps.append(p)
+	'''
+	for i in range(size):
+		p = Process(target=init_processes,)
 	torch.multiprocessing.spawn(init_processes,
-				args=[size],
+				args=[size,queue],
 				nprocs=size)
+
+	'''
+	ps[0].join()
+
+
+
+
+
+

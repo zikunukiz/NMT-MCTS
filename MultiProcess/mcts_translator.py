@@ -90,13 +90,14 @@ class MCTS(object):
 
     #group is for the group of processes which allows us 
     #to send and receive tensors with other processes in group
-    def __init__(self, tgt_tensor, group, rankInGroup, max_len,main_params):
+    def __init__(self, tgt_tensor, group, rankInGroup, max_len,main_params,queue):
         """
         c_puct: a number in (0, inf) that controls how quickly exploration
             converges to the maximum-value policy. A higher value means
             relying on the prior more.
         """
         self.group = group
+        self.queue = queue
         self.max_len = max_len #max translation length (need to path our tensors up to this for interprocess communication)
         self.rankInGroup =rankInGroup#is way of identifying this process in the group
         self._root = TreeNode(None, 1)
@@ -104,7 +105,7 @@ class MCTS(object):
         self._n_playout = main_params.num_sims
         self.num_children = main_params.num_children
         self.temperature = main_params.temperature 
-        self.time_last_scatter = 0 #want to make sure never go mroe than 0.5 seconds without scattering so other processes don't wait on this
+        #self.time_last_scatter = 0 #want to make sure never go mroe than 0.5 seconds without scattering so other processes don't wait on this
         # with the default temp=1e-3, it is almost equivalent
         # to choosing the move with the highest prob
             
@@ -126,7 +127,6 @@ class MCTS(object):
             state.do_move(action)
             
         # print("output: {}".format(state.output.tolist()))
-
         
         if not node._V is None:
             leaf_value = node._V 
@@ -137,6 +137,25 @@ class MCTS(object):
 
             if (not end or not self.is_training) and not ((end or len(state.output)==self.max_len)and self.is_training):
 
+                #last element of padded output will be rank of this process
+                #and second last element is length of the output without padding
+                padded_output = torch.ones(self.max_len+2)*globalsFile.BLANK_WORD_ID
+                padded_output[:len(self.translation.output)]= self.translation.output
+                padded_output[-2] = len(self.translation.output)
+                padded_output[-1] = self.rankInGroup
+                print('rank: {}, Sending to queue: {}'.format(self.rankInGroup,padded_output[:15]))
+                self.queue.put(padded_output)
+
+                model_response = torch.ones(2*self.num_children + 1).double()
+                req = dist.irecv(tensor=model_response,src=0)
+                req.wait()
+
+                top_actions = model_response[:self.num_children].long()
+                #print('Top actions received',top_actions[:15])
+                top_probs = model_response[self.num_children:-1]
+                leaf_value = model_response[-1]
+
+                '''
                 #HERE is where we call gather with group containing model
                 #want to send main process our output so far padded
                 padded_output = torch.ones(self.max_len+1)*globalsFile.BLANK_WORD_ID
@@ -148,11 +167,7 @@ class MCTS(object):
                 model_response = torch.ones(2*self.num_children + 1).double()
                 dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)
                 self.time_last_scatter = time.time()
-
-                top_actions = model_response[:self.num_children].long()
-                #print('Top actions received',top_actions[:15])
-                top_probs = model_response[self.num_children:-1]
-                leaf_value = model_response[-1]
+                '''
                 if not end and len(state.output)<self.max_len:
                     assert(len(top_actions)==self.num_children)
                     print('expanding at new state, rank: ',self.rankInGroup)
@@ -181,13 +196,11 @@ class MCTS(object):
             # print("simulation - {}".format(n))
             copy_last_word = copy.deepcopy(self.translation.last_word_id)
             copy_output = copy.deepcopy(self.translation.output)
-            #copy_state = copy.deepcopy(self.translation)
-            #self._playout(copy_state)
-            
             self._playout(self.translation)
             self.translation.last_word_id = copy_last_word
             self.translation.output = copy_output
         
+        '''
         if time.time() - self.time_last_scatter > globalsFile.MAX_TIME_BETWEEN_SCATTERS:
             #do a fake gather and scatter
             padded_output = torch.ones(self.max_len+1)*5 #don't want main process thinking we want to terminate. 
@@ -195,7 +208,7 @@ class MCTS(object):
             model_response = torch.ones(2*self.num_children + 1).double()
             dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)
             self.time_last_scatter = time.time()
-
+        '''
         # print("simluations finished")
         # calc the move probabilities based on visit counts at the root node
         act_probs = F.softmax(1.0/self.temperature * torch.log(self._root._n_visits) + 1e-10, dim=0)
