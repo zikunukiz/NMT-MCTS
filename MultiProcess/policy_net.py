@@ -204,6 +204,13 @@ class PolicyValueNet():
 
         src_key_padding_mask = (src_tensor == 1).transpose(0, 1)
         dec_key_padding_mask = (dec_input==1).transpose(0,1)
+        
+        if not self.encoder_output is None:
+            print('SHAPES: {}, {},{}'.format(src_key_padding_mask.shape,encoder_output_sliced.shape,src_tensor.shape))
+            print('PRocesses: ',processes)
+        #print(dec_key_padding_mask)
+        #print(dec_key_padding_mask.shape)
+        #print('PRINTED HERE')
         batch_indices = torch.tensor(np.arange(src_tensor.shape[1])).to(self.device)
         with torch.set_grad_enabled(req_grad):
             policy_output, encoder_output_sliced = self.policy_net.forward(src_tensor, dec_input,
@@ -258,9 +265,9 @@ class PolicyValueNet():
         actions = actions.to(self.device)                
         bleus = bleus.to(self.device)
 
-        
+        processes = torch.tensor(np.arange(src_input.shape[1])).long()
         # forward pass : args: src_tensor, dec_input, sentence_lens,req_grad
-        log_act_probs, value = self.forward(src_input, dec_input, sentence_lens,req_grad=True)
+        log_act_probs, value = self.forward(src_input, dec_input, processes=processes,sentence_lens=sentence_lens,req_grad=True)
         #value is just array of value per element in batch
         #log_act_probs has shape (batch_size,vocab_size)
         

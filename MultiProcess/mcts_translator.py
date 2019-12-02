@@ -143,7 +143,7 @@ class MCTS(object):
                 padded_output[:len(self.translation.output)]= self.translation.output
                 padded_output[-2] = len(self.translation.output)
                 padded_output[-1] = self.rankInGroup
-                print('rank: {}, Sending to queue: {}'.format(self.rankInGroup,padded_output[:15]))
+                #print('rank: {}, Sending to queue: {}'.format(self.rankInGroup,padded_output[:15]))
                 self.queue.put(padded_output)
 
                 model_response = torch.ones(2*self.num_children + 1).double()
@@ -170,7 +170,7 @@ class MCTS(object):
                 '''
                 if not end and len(state.output)<self.max_len:
                     assert(len(top_actions)==self.num_children)
-                    print('expanding at new state, rank: ',self.rankInGroup)
+                    #print('expanding at new state, rank: ',self.rankInGroup)
                     node.expand(top_actions,top_probs)
 
             else:

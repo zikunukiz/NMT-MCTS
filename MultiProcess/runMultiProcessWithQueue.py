@@ -24,9 +24,10 @@ import json
 from dataBuffer import DataBuffer
 
 
+
 def run(rank,maxlen,main_params,trg_tensor,queue,queue_exit):
 	
-	mcts = MCTS(tgt_tensor=trg_tensor,group=group,rankInGroup=rank,
+	mcts = MCTS(tgt_tensor=trg_tensor,group=None,rankInGroup=rank,
 				max_len=maxlen,main_params=main_params,queue=queue)
 
 
@@ -48,6 +49,11 @@ def run(rank,maxlen,main_params,trg_tensor,queue,queue_exit):
 #this is where the main process runs
 def main_func(numProcesses,src_tensor,maxlen,model,queue,queue_exit):
 	#exit('Exiting 1')
+	
+	model.policy_net = model.policy_net.to(model.device)
+	model.value_net = model.value_net.to(model.device)
+    
+    
 	starting_time = time.time()
 	
 	#RUN MODEL WITH ENTIRE SOURCE TENSOR ONCE TO GET 
@@ -66,6 +72,7 @@ def main_func(numProcesses,src_tensor,maxlen,model,queue,queue_exit):
 		
 		#first receive tensors from subprocesses in queue
 		recv_tensors = []
+		start_time=time.time()
 		while(True):
 			if not queue.empty():
 				rec_tens = queue.get()
@@ -82,7 +89,9 @@ def main_func(numProcesses,src_tensor,maxlen,model,queue,queue_exit):
 			#trim them down to the maximum length of all gathered when remove padding
 			max_gathered_len = int(dec_lengths.max().item())
 			assert(max_gathered_len > 0)
+			#print('RECEIVED TENSORS: ',recv_tensors[0])
 			dec_input = torch.cat([x[:max_gathered_len].view(-1,1) for x in recv_tensors],1).long()
+			#print('RECEIVED TENSORS: ',recv_tensors[0][:max_gathered_len])
 			src_slice = src_tensor[:,(processes-1)] #take processes-1 since subprocesses start at rank=1
 			#need to rearrange columns of src_tensor to work with 
 			#this input
@@ -90,7 +99,7 @@ def main_func(numProcesses,src_tensor,maxlen,model,queue,queue_exit):
 			#then use slices thereafter.  
 
 			#mask for decoder_input happens within this function
-			log_probs, values = model.forward(src_tensor,dec_input,processes=processes,
+			log_probs, values = model.forward(src_slice,dec_input,processes=processes,
 											sentence_lens=dec_lengths,req_grad=False)
 
 			#need to get top model.num_children probs and their corresponding actions
@@ -135,7 +144,7 @@ def init_processes(rank,numProcesses,src_tensor,trg_tensor,modelToPass,main_para
 	os.environ['MASTER_PORT'] = '29500'
 	print('rank: {}, numProcesses: {}'.format(rank,numProcesses))
 	dist.init_process_group('gloo', rank=rank, world_size=numProcesses)
-	groupMCTS = dist.new_group([i for i in range(numProcesses)])
+	#groupMCTS = dist.new_group([i for i in range(numProcesses)])
 	
 	maxlen = trg_tensor.shape[0] + 5 #max number of decode steps/ length in MCTS
 	if rank == 0:
@@ -148,6 +157,7 @@ def init_processes(rank,numProcesses,src_tensor,trg_tensor,modelToPass,main_para
 
 if __name__ == '__main__':
 	
+	torch.multiprocessing.set_start_method('spawn')
 	#now create data_set iterators
 	dataset_dict = createIterators(globalsFile.BATCHSIZE,globalsFile.DATAPATH)
 
@@ -168,7 +178,10 @@ if __name__ == '__main__':
 	network = PolicyValueNet(main_params=main_params,path_to_policy=policy_path,
 							path_to_value=value_path)
 	
-	
+	network.policy_net = network.policy_net.to('cpu')
+	network.value_net = network.value_net.to('cpu')
+	print('TRANSFERRED TO CPU')
+    
 	data_buffer = DataBuffer()
 	for epoch in range(1000): #number iterations over dataset
 		data_iter = 'train_iter'
@@ -181,7 +194,7 @@ if __name__ == '__main__':
 			sentences_processed += src_tensor.shape[1]
 			
 			#REMOVE THIS
-			if src_tensor.shape[0] < 40:
+			if src_tensor.shape[0] != 45:
 				continue
 
 			main_params.is_training = True if 'train' in data_iter else False
@@ -197,7 +210,7 @@ if __name__ == '__main__':
 			for rank in range(size):
 				model = network if rank==0 else None
 				args =(rank,size,src_tensor,trg_tensor,model,main_params,queue,queue_exit)
-				p = Process(target=init_processes,args)
+				p = Process(target=init_processes,args=args)
 				p.start()
 				ps.append(p)
 
