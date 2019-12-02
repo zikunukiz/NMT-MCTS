@@ -52,7 +52,7 @@ def main_func(numProcesses,group,queue,queue_exit):
 		#time.sleep(1)
 
 		recv_tensors = []
-		#start_time = time.time()
+		start_time = time.time()
 		while(True):
 			if not queue.empty():
 				rec_tens = queue.get()
@@ -86,8 +86,8 @@ def init_processes(rank,numProcesses,queue,queue_exit):
 	os.environ['MASTER_PORT'] = '29500'
 	dist.init_process_group('gloo', rank=rank, world_size=numProcesses)
 
-	group = dist.new_group([i for i in range(numProcesses)])
-
+	#group = dist.new_group([i for i in range(numProcesses)])
+	group=None
 	if rank == 0:
 		main_func(numProcesses,group,queue,queue_exit)
 
