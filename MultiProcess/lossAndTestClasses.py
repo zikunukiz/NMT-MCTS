@@ -14,6 +14,46 @@ We also have the loss class and a parameter holding class here.
 
 '''
 
+def fix_sentence(sentence, as_str=False):  
+    #if as_str==True then join tokens by space unless comma or period
+    new_sentence = []
+    cur_word = ''
+    for p in sentence:
+      if '@@' in p:
+        cur_word += p[:-2]
+      else:
+        if cur_word != '':
+          new_sentence.append(cur_word+p)
+          cur_word = ''
+        elif '&' in p and ';' in p: #this means should be adding this onto last added word 
+          if len(new_sentence) >0:
+            new_sentence[-1] = new_sentence[-1] + "'"+p.split(';')[1]
+          #OTHERWISE NOT SURE WHAT TO DO
+          else:
+            pass #NEED TO IMPLEMENT
+        else:
+          new_sentence.append(p)  
+
+    str_to_ret= ''
+    if as_str:
+      for w in new_sentence:
+
+        if w in [',','.','?'] and len(str_to_ret)!=0 and str_to_ret[-1]==' ': #remove last space added
+
+          str_to_ret = str_to_ret[:-1] 
+        elif  w in [',','.','?'] and len(str_to_ret)!=0:
+          #print('Weird sentence: ', new_sentence)
+          pass
+
+        str_to_ret += w
+        if not (w in ['.','?']):
+          str_to_ret += ' '
+
+      return str_to_ret
+
+    return new_sentence
+
+
 #returns average bleu score of batch
 def get_bleu_scores(trg_tensor,pred_tensor,TGT,BLEU1=False):
   bleus_per_sentence = torch.zeros(trg_tensor.shape[1],requires_grad=False) 

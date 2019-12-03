@@ -13,17 +13,19 @@ cimport numpy as np
 #from cpython cimport array
 #import array
 
-DTYPE = np.int
-ctypedef np.int_t INT_t
+#DTYPE = np.int
+#ctypedef np.int_t INT_t
 
 #holds current state of our MCTS translation
-class Translation:
+cdef class Translation:
     
-    def __init__(self, np.ndarray[INT_t] tgt, vocab):
+    def __init__(self, np.ndarray[INT_t] tgt, list vocab):
+        
+        #cdef INT_t output
         
         self.vocab = vocab
         self.tgt = tgt  # list of indices
-        self.output = np.zeros(70) #eventually can reduce for memory consumption
+        self.output = np.zeros(70).astype(int) #eventually can reduce for memory consumption
         self.output[0] = 2
         self.last_word_id = globalsFile.BOS_WORD_ID
         self.len_output = 1
@@ -43,9 +45,15 @@ class Translation:
         if self.last_word_id == globalsFile.EOS_WORD_ID or forceGetBleu:
         
             # revert tokenization back to strings
-            output_slice = np.array(self.output[:self.len_output])
-            predict_tokens = self.vocab[output_slice].tolist()
-            ref_tokens = self.vocab[self.tgt].tolist()
+            output_slice = self.output[:self.len_output]
+            predict_tokens = [self.vocab[x] for x in output_slice]
+            
+            #print('OUTPUT SLCIC: ', output_slice)
+            #predict_tokens = self.vocab[output_slice].tolist()
+            
+            ref_tokens = [self.vocab[x] for x in self.tgt]
+            
+            #ref_tokens = self.vocab[self.tgt].tolist()
 
             #now assuming first token of each is BOS and last is EOS
             #and don't want BOS or EOS in our bleu calc

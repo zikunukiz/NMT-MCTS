@@ -114,7 +114,8 @@ class TransformerModel(nn.Module):
 class MainParams:
     def __init__(self, dropout, src_vocab_size, tgt_vocab_size, 
                 batch_size,l2_const,c_puct,num_sims,temperature,
-                tgt_vocab_itos,num_children,is_training):
+                tgt_vocab_itos,num_children,is_training,num_grad_steps_per_epoch=4,
+                  adamlr=1e-4):
         use_gpu = torch.cuda.is_available()
         self.device = torch.device("cuda:0" if use_gpu else "cpu")
         print(self.device)
@@ -130,11 +131,14 @@ class MainParams:
         self.num_children = num_children
         self.temperature = temperature 
         self.is_training = is_training
+        self.num_grad_steps_per_epoch = num_grad_steps_per_epoch
+        self.adamlr = adamlr
+        
 
 class PolicyValueNet():
     """policy-value network"""
 
-    def __init__(self, main_params, path_to_policy=None, path_to_value=None):
+    def __init__(self, main_params, path_to_policy=None, path_to_value=None,adamlr=1e-4):
         self.use_gpu = True if main_params.device == torch.device('cuda:0') else False
         self.l2_const = main_params.l2_const  # coef of l2 penalty
         self.device = main_params.device
@@ -170,9 +174,9 @@ class PolicyValueNet():
             
         # optimizer
         self.policy_optimizer = optim.Adam(
-            self.policy_net.parameters(), weight_decay=self.l2_const)
+            self.policy_net.parameters(), weight_decay=self.l2_const, lr=adamlr)
         self.value_optimizer = optim.Adam(
-            self.value_net.parameters(), weight_decay=self.l2_const)
+            self.value_net.parameters(), weight_decay=self.l2_const, lr=adamlr)
 
 
     def forward(self, src_tensor, dec_input, processes, sentence_lens,req_grad=False):
@@ -205,9 +209,9 @@ class PolicyValueNet():
         src_key_padding_mask = (src_tensor == 1).transpose(0, 1)
         dec_key_padding_mask = (dec_input==1).transpose(0,1)
         
-        if not self.encoder_output is None:
-            print('SHAPES: {}, {},{}'.format(src_key_padding_mask.shape,encoder_output_sliced.shape,src_tensor.shape))
-            print('PRocesses: ',processes)
+        #if not self.encoder_output is None:
+        #    print('SHAPES: {}, {},{}'.format(src_key_padding_mask.shape,encoder_output_sliced.shape,src_tensor.shape))
+        #    print('PRocesses: ',processes)
         #print(dec_key_padding_mask)
         #print(dec_key_padding_mask.shape)
         #print('PRINTED HERE')
@@ -219,8 +223,8 @@ class PolicyValueNet():
                                              memory_key_padding_mask=src_key_padding_mask,
                                              memory=encoder_output_sliced)
             
-            log_act_probs = F.log_softmax(policy_output[sentence_lens-1, batch_indices, :], dim=1)
-            #print('SHAPE log_act_probs: ',log_act_probs.shape)
+            act_probs = F.softmax(policy_output[sentence_lens-1, batch_indices, :], dim=1)
+            #the shape is (batch_size, vocab size)
 
             #commenting out shared decoder_embedding for now since were 
             #trained with different ones which will throw off the algorithm initially
@@ -241,7 +245,7 @@ class PolicyValueNet():
                 self.encoder_output = encoder_output_sliced.clone()
 
             value_output = torch.sigmoid(value_output[sentence_lens-1, batch_indices, 0])
-            return log_act_probs, value_output
+            return act_probs, value_output
 
     
     '''
@@ -250,15 +254,18 @@ class PolicyValueNet():
     '''
     def train_step(self, src_input, dec_input, mcts_probs, actions,bleus):
         
-        if not self.encoder_output is None:
-            self.encoder_output = self.encoder_output.clone().detach()
+        self.encoder_output = None #don't want to use encoder output from previous iterations here
+        #if not self.encoder_output is None:
+        #    self.encoder_output = self.encoder_output.clone().detach()
         
         self.policy_optimizer.zero_grad()
         self.value_optimizer.zero_grad()
 
         #this will give first index where Blank
         sentence_lens = np.argmax((dec_input==globalsFile.BLANK_WORD_ID),0)
-
+        print('DECODER input: ',dec_input)
+        print('sentence_lens: ',sentence_lens)
+        
         src_input = src_input.to(self.device)
         dec_input = dec_input.to(self.device)
         mcts_probs = mcts_probs.to(self.device)
@@ -267,7 +274,10 @@ class PolicyValueNet():
 
         processes = torch.tensor(np.arange(src_input.shape[1])).long()
         # forward pass : args: src_tensor, dec_input, sentence_lens,req_grad
+        
         log_act_probs, value = self.forward(src_input, dec_input, processes=processes,sentence_lens=sentence_lens,req_grad=True)
+        
+        log_act_probs = torch.log(log_act_probs)
         #value is just array of value per element in batch
         #log_act_probs has shape (batch_size,vocab_size)
         

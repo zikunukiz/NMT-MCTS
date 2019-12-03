@@ -11,13 +11,13 @@ import torch
 from torch.autograd import Variable
 import torch.distributed as dist
 import globalsFile
-from translate import *
+from translate import Translation
 import time
 import torch.nn.functional as F
 cimport numpy as np
 from cpython cimport array
 import array
-#from translation cimport Translation
+from translate cimport Translation
 #remaking TreeNodes to speed things up.
 #now TreeNode just has parent and dict to children but also 
 #has several fields which now correspond to the edges leaving this node
@@ -38,49 +38,49 @@ cdef class TreeNode:
     cdef DOUBLE_t [:] _priors
     cdef DOUBLE_t [:] _Q
     cdef object _parent
-    cdef int parent_ind_action_taken
+    cdef INT_t parent_ind_action_taken
     cdef DOUBLE_t _V
-    cdef int isleaf
+    cdef INT_t isleaf
     cdef DOUBLE_t sum_visits #total number of visits to this node (used in select function)
     
-    def __init__(self,object parent,int parent_ind_action_taken):
+    def __init__(self,object parent,INT_t parent_ind_action_taken):
         self._parent = parent
         self.parent_ind_action_taken = parent_ind_action_taken #is index of action in parent action vector taken from parent to get here
-        self._children = None #dictionary action->TreeNode CHANGETHIS TO ARRAY OF CHILDREN WHICH CORRESPOND TO THE ACTIONS VECTOR
+        self._children = None #ARRAY OF CHILDREN TreeNodes WHICH CORRESPOND TO THE ACTIONS VECTOR
         self._n_visits = None #number of visits to each of it's branches
         self._actions = None #array of actions that the edges correspond to
         self._priors = None #prior probs that the edges correspond to 
         self._Q = None #Q values of edges
-        self._V = -0.01 #is value computed for this state
+        self._V = -0.1 #is value computed for this state
         self.isleaf = 1
         self.sum_visits = 1
         
-    def expand(self,np.ndarray[INT_t, ndim=1] top_actions,np.ndarray[DOUBLE_t, ndim=1] top_probs):
+    def expand(self,np.ndarray[INT_t] top_actions,np.ndarray[DOUBLE_t, ndim=1] top_probs):
         """Expand tree by creating new children.
         action_priors: a list of tuples of actions and their prior probability
             according to the policy function.
         """   
         #assert(len(self._children)==0)
-        cdef int len_actions
+        cdef INT_t len_actions
         len_actions = top_actions.size
         
+        #print('len_actions: ',len_actions)
+        
         self.isleaf = 0
-        actions_copy = np.copy(top_actions) #top_actions.clone().detach()
-        top_probs_cpy = np.copy(top_probs) #.clone().detach()
+        self._actions = np.copy(top_actions) #top_actions.clone().detach()
+        self._priors = np.copy(top_probs) #.clone().detach()
         
         #we have each each element in a corresponding to Child at same position in _children
         self._children = np.empty(shape=(len_actions)).astype(dtype=TreeNode)
         for ind in range(len_actions):
             self._children[ind] = TreeNode(self,ind)
-               
-        self._priors = top_probs_cpy
-        self._actions = actions_copy
+         
         self._n_visits = np.zeros(len_actions)
         self._Q = np.zeros(len_actions)
         
         
     def select(self, DOUBLE_t c_puct):
-        
+        #HAVE Copied this into playout to speed things up, also nested all the numpy calls 
 
         """Select action among children that gives maximum action value Q
         plus bonus u(P).
@@ -102,6 +102,7 @@ cdef class TreeNode:
         return indice_best_action   
     
     def backup(self,DOUBLE_t leaf_value):
+        #have moved this inside playout function for speed
         
         cdef TreeNode node
         node = self
@@ -118,7 +119,7 @@ cdef class TreeNode:
             
 class MCTS(object):
     """An implementation of Monte Carlo Tree Search."""
-
+    
     #group is for the group of processes which allows us 
     #to send and receive tensors with other processes in group
     def __init__(self, tgt_tensor, group, rankInGroup, max_len,main_params,queue):
@@ -127,6 +128,9 @@ class MCTS(object):
             converges to the maximum-value policy. A higher value means
             relying on the prior more.
         """
+        
+        #cdef TreeNode self._root
+        
         self.group = group
         self.queue = queue
         self.max_len = max_len #max translation length (need to path our tensors up to this for interprocess communication)
@@ -140,39 +144,46 @@ class MCTS(object):
         # with the default temp=1e-3, it is almost equivalent
         # to choosing the move with the highest prob
         
-        print('SETTING UP TRNASLATION:')
-        print(type(tgt_tensor.numpy()))
-        self.translation = Translation(tgt=tgt_tensor.numpy(), vocab=main_params.tgt_vocab_itos)
+        self.translation = Translation(tgt=tgt_tensor[tgt_tensor!=globalsFile.BLANK_WORD_ID].numpy(), vocab=main_params.tgt_vocab_itos)
         self.is_training = main_params.is_training #lets us know if on train set            
         self.possible_inds = np.arange(self.num_children)
         
     #def _playout(self, Translation state):
-    def _playout(self, state):  
-        """Run a single playout from the root to the leaf, getting a value at
-        the leaf and propagating it back through its parents.
-        State is modified in-place, so a copy must be provided.
-        """
+    """
+    #THIS HAS PROBLEMS (mixes use of state and translation variables wrongly
+    def _playout(self, Translation state):  
+        #Run a single playout from the root to the leaf, getting a value at
+        #the leaf and propagating it back through its parents.
+        #State is modified in-place, so a copy must be provided.
+        
         cdef DOUBLE_t [:]  u
         cdef DOUBLE_t [:] v
-        cdef int indice_best_action
-        cdef int best_action
+        cdef INT_t indice_best_action
+        cdef INT_t best_action
         cdef TreeNode node
+        cdef DOUBLE_t _c_puct
+        cdef INT_t EOS_ID
         
-        playout_t1 = time.time()
+        EOS_ID = globalsFile.EOS_WORD_ID
+        _c_puct = self._c_puct
+        #playout_t1 = time.time()
         node = self._root
         while(1):
-            if node.isleaf or state.last_word_id == globalsFile.EOS_WORD_ID:
+            if node.isleaf or state.last_word_id == EOS_ID:
                 break
             
-
-        
-            u = np.multiply(self._c_puct,node._priors)
-            u = np.multiply(u,(node.sum_visits**0.5))
-            u = np.divide(u, np.add(node._n_visits,1.))
+            #if nest all these calls we get decent speed boost
+            indice_best_action = np.argmax(np.add(np.divide(np.multiply(np.multiply(_c_puct,node._priors),(node.sum_visits**0.5)),np.add(node._n_visits,1.)),node._Q))
+            
+            
+            
+            #u = np.multiply(_c_puct,node._priors)
+            #u = np.multiply(u,(node.sum_visits**0.5))
+            #u = np.divide(u, np.add(node._n_visits,1.))
 
             #u = (c_puct*self._priors*np.sqrt(self.sum_visits) / (1 + self._n_visits))
-            v = np.add(u,node._Q)
-            indice_best_action = np.argmax(v)
+            #indice_best_action = np.argmax(np.add(u,node._Q))
+            #indice_best_action = np.argmax(u)
 
             
             #number of times to the parent is just sum of children visits + 1 for when parent was expanded
@@ -188,8 +199,8 @@ class MCTS(object):
             state.len_output += 1
 
         
-        p2 = time.time()-playout_t1
-        print('playout: ',p2)
+        #p2 = time.time()-playout_t1
+        #print('playout: ',p2)
         # print("output: {}".format(state.output.tolist()))
         
         if node._V >= 0: #means it has been set
@@ -219,19 +230,19 @@ class MCTS(object):
                 top_probs = model_response[self.num_children:-1]
                 leaf_value = model_response[-1].item()
 
-                '''
+                
                 #HERE is where we call gather with group containing model
                 #want to send main process our output so far padded
-                padded_output = torch.ones(self.max_len+1)*globalsFile.BLANK_WORD_ID
-                padded_output[:len(self.translation.output)]= self.translation.output
-                padded_output[-1] = len(self.translation.output)
+                #padded_output = torch.ones(self.max_len+1)*globalsFile.BLANK_WORD_ID
+                #padded_output[:len(self.translation.output)]= self.translation.output
+                #padded_output[-1] = len(self.translation.output)
                 #print('Sending gatherer: ',padded_output[:15])
-                dist.gather(tensor=padded_output,gather_list=None, dst=0,group=self.group) #send to process 2
+                #dist.gather(tensor=padded_output,gather_list=None, dst=0,group=self.group) #send to process 2
 
-                model_response = torch.ones(2*self.num_children + 1).double()
-                dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)
-                self.time_last_scatter = time.time()
-                '''
+                #model_response = torch.ones(2*self.num_children + 1).double()
+                #dist.scatter(tensor=model_response,scatter_list=None,src=0,group=self.group)
+                #self.time_last_scatter = time.time()
+                
                 if not end and state.len_output < self.max_len:
                     #assert(len(top_actions)==self.num_children)
                     #print('expanding at new state, rank: ',self.rankInGroup)
@@ -244,33 +255,138 @@ class MCTS(object):
         # Update value and visit count of nodes in this traversal
         node._V = leaf_value
         
-        p3 = time.time()
+        #p3 = time.time()
         node.backup(leaf_value)
         
-        playout_t2 = time.time()-p3
-        print('backup time: ',playout_t2)
+        #playout_t2 = time.time()-p3
+        #print('backup time: ',playout_t2)
         #print('Time for playout: ',playout_t2)
-
-    def get_move_probs(self):
+    """
+    def get_move_probs(self,Translation translation, TreeNode root):
         """Run all playouts sequentially and return the available actions and
         their corresponding probabilities.
         state: the current state (input and its translation so far)
         temp: temperature parameter in (0, 1] controls the level of exploration
         """
         #_n_playout is number of simulations per action chosen
-        cdef int last_word_cpy
-        cdef DOUBLE_t [:] copy_output
-        cdef int copy_len_output
+        cdef INT_t copy_last_word
+        cdef INT_t [:] copy_output
+        cdef INT_t copy_len_output
+        cdef DOUBLE_t [:] children_n_visits
+        cdef INT_t n_playout
+        cdef TreeNode node
+        cdef DOUBLE_t _c_puct
+        cdef INT_t EOS_ID
+        cdef INT_t indice_best_action
+        cdef INT_t best_action
+        cdef INT_t end
+        cdef INT_t is_training
+        cdef INT_t max_len
+        cdef DOUBLE_t leaf_value
         
-        for n in range(self._n_playout):
+        max_len = self.max_len
+        is_training = self.is_training
+        EOS_ID = globalsFile.EOS_WORD_ID
+        _c_puct = self._c_puct
+        
+        #get_move_time = time.time()
+        
+         
+        n_playout = self._n_playout
+        
+        #print('Start:rank: {}, output: {}, len: {}, lastWord: {}'.format(self.rankInGroup,[x for x in translation.output],translation.len_output,translation.last_word_id))
+        
+        #translation.output = np.copy(translation.output) #need to get type assigned
+        
+        #Tested that translation doens't change here. 
+        
+        for n in range(n_playout):
             # print("simulation - {}".format(n))
-            copy_last_word = self.translation.last_word_id #copy.deepcopy(self.translation.last_word_id)
-            copy_output = np.copy(self.translation.output)
-            copy_len_output = self.translation.len_output
-            self._playout(self.translation)
-            self.translation.last_word_id = copy_last_word
-            self.translation.output = copy_output
-            self.translation.len_output = copy_len_output
+            copy_last_word = translation.last_word_id #copy.deepcopy(self.translation.last_word_id)
+            copy_output = np.copy(translation.output)
+            copy_len_output = translation.len_output
+            
+            #INSERTING CODE FOR PLAYOUT TO INCREASE SPEED
+            node = root
+            while(1):
+                if node.isleaf or translation.last_word_id == EOS_ID:
+                    break
+
+                #if nest all these calls we get decent speed boost
+                indice_best_action = np.argmax(np.add(np.divide(np.multiply(node._priors, (node.sum_visits**0.5)*_c_puct),np.add(node._n_visits,1.)),node._Q))
+                
+                best_action = node._actions[indice_best_action]
+                node = node._children[indice_best_action]
+
+                #directly copy in the do_move code to speed things up: replaces: state.do_move(best_action)
+                translation.last_word_id = best_action
+                translation.output[translation.len_output] = best_action
+                translation.len_output += 1
+
+            
+            if node._V >= 0: #means it has been set
+                leaf_value = node._V 
+
+            else:
+                
+                # Check for end of translation 
+                end = (translation.last_word_id == EOS_ID)
+                
+                if (not end or not is_training) and not ((end or translation.len_output==max_len)and is_training):
+
+                    #last element of padded output will be rank of this process
+                    #and second last element is length of the output without padding
+                    padded_output = torch.ones(self.max_len+2)*globalsFile.BLANK_WORD_ID
+                    padded_output[:translation.len_output]= torch.tensor(translation.output[:translation.len_output])
+                    padded_output[-2] = translation.len_output
+                    padded_output[-1] = self.rankInGroup
+                    #print('rank: {}, Sending to queue: {}'.format(self.rankInGroup,padded_output[:15]))
+                    self.queue.put(padded_output)
+
+                    model_response = torch.ones(2*self.num_children + 1).double()
+                    req = dist.irecv(tensor=model_response,src=0)
+                    req.wait()
+
+                    top_actions = model_response[:self.num_children].long()
+                    #print('Top actions received',top_actions[:15])
+                    top_probs = model_response[self.num_children:-1]
+                    leaf_value = model_response[-1].item()
+
+                    if not end and translation.len_output < self.max_len:
+                        #assert(len(top_actions)==self.num_children)
+                        #print('expanding at new state, rank: ',self.rankInGroup)
+                        node.expand(top_actions.numpy(),top_probs.numpy())
+
+                else:
+                    end, bleu = translation.translation_end() #only need to fully run this function here.
+                    #print('USING BLEU')
+                    leaf_value = bleu
+
+            # Update value and visit count of nodes in this traversal
+            node._V = leaf_value
+            
+            #CODE FOR BACKUP
+            node.sum_visits += 1
+            while(node._parent):
+                act_ind = node.parent_ind_action_taken
+                node = node._parent
+                node.sum_visits += 1
+                node._n_visits[act_ind] += 1
+                node._Q[act_ind] += (leaf_value - node._Q[act_ind]) / node._n_visits[act_ind]
+
+            
+            #node.backup(leaf_value)
+    
+            #END OF CODE FOR PLAYOUT
+            
+            #reset translation for next playout
+            translation.last_word_id = copy_last_word
+            translation.output = np.array(copy_output) #np.copy(copy_output)
+            translation.len_output = copy_len_output
+        
+        
+        #get_move_time = time.time()-get_move_time
+        #print('get_move_time: ',get_move_time)
         '''
         if time.time() - self.time_last_scatter > globalsFile.MAX_TIME_BETWEEN_SCATTERS:
             #do a fake gather and scatter
@@ -282,27 +398,54 @@ class MCTS(object):
         '''
         # print("simluations finished")
         # calc the move probabilities based on visit counts at the root node
-        act_probs = F.softmax(1.0/self.temperature * torch.log(self._root._n_visits) + 1e-10, dim=0)
-
-        return self._root._actions, act_probs
+        
+        act_probs = F.softmax(torch.tensor(1.0/self.temperature * np.log(np.add(root._n_visits,1e-5))), dim=0)
+        
+        
+        #print('assigning translation to translation')
+        #self.translation = translation
+        #print('End: rank: {}, output: {}, len: {}, lastWord: {}'.format(self.rankInGroup,[x for x in translation.output],translation.len_output,translation.last_word_id))
+        
+        
+        
+        return root._actions, act_probs,root
 
     
-    def get_action(self):
-        end, bleu = self.translation.translation_end()
+    def get_action(self,Translation translation, TreeNode root):
+        
+        cdef INT_t word_ind_in_acts
+        
+        end, bleu = translation.translation_end()
         # the pi vector returned by MCTS as in the alphaGo Zero paper
-    
+
         if not end:
-            acts, probs = self.get_move_probs() # output vocab size
-            sum_prob = self._root._priors.sum()
+            
+            #TO NOTE: Passing translation and root actually passes them as copies. 
+            #MAKE SURE translation and root stay same (they do)
+            #if not root._priors is None:   
+            #    print('TransSTART: rank: {}, output: {}, len: {}, lastWord: {}'.format(self.rankInGroup,[x for x in translation.output],translation.len_output,translation.last_word_id))
+            #    print('Root before: ind_parent: {}, priors[:10]: {}, _n_visits[:10]: {}'.format(root.parent_ind_action_taken, [x for x in root._priors[:10]],[x for x in root._n_visits[:10]]))
+
+            acts, probs,root = self.get_move_probs(translation, root) # output vocab size
+            
+            #if not root._priors is None:
+            #    print('TransEND: rank: {}, output: {}, len: {}, lastWord: {}'.format(self.rankInGroup,[x for x in translation.output],translation.len_output,translation.last_word_id))
+            #    print('Root after: ind_parent: {}, priors[:10]: {}, _n_visits[:10]: {}'.format(root.parent_ind_action_taken, [x for x in root._priors[:10]],[x for x in root._n_visits[:10]]))
+            
+            sum_prob = np.sum(root._priors)
   
             word_ind_in_acts = np.random.choice(self.possible_inds, p=probs)
             word_id = acts[word_ind_in_acts] #chosen word
             #move root to this child
             #print('word_id chosen: ',word_id)
             
-            self._root = self._root._children[word_ind_in_acts]
-            self._root._parent = None
-
+            #self._root = self._root._children[word_ind_in_acts]
+            #self._root._parent = None
+            root = root._children[word_ind_in_acts]
+            root._parent = None
+            #self._root = root
+            
+            
             #word = self.translation.word_index_to_str(word_id)  
 
             probs *= sum_prob #scale probs by sum of their priors
@@ -323,7 +466,7 @@ class MCTS(object):
             #     word = translation.select_next_word(word_id)
             #     print("system chose word: {}".format(word))
             
-            return word_id, probs, acts
+            return word_id, probs, acts,root
             
         else:
             print("WARNING: no word left to select")
@@ -337,28 +480,45 @@ class MCTS(object):
             bleus_z: list of bleu scores
         """
        
+        cdef Translation translation
+        cdef TreeNode root
+        translation = self.translation #WE DONT USE Self.TRANSLATION ANYMORE
+        root = self._root #dont use self._root anymore either
+    
         print('Translating sentence rank: ',self.rankInGroup)
         output_states, mcts_probs, actions, bleu = [], [],[], -1
         while True:
             # start_time = time.time()
             trans_start_time = time.time()
-            word_id, probs, acts = self.get_action()                                              
+            
+            
+            #MAKE SURE VISIT COUNTS CHANGE ON ROOT FROM HERE TO AFTER get_action
+            #if not root._priors is None:   
+            #    print('TransSTART: rank: {}, output: {}, len: {}, lastWord: {}'.format(self.rankInGroup,[x for x in translation.output],translation.len_output,translation.last_word_id))
+            #    print('Root before: ind_parent: {}, priors[:10]: {}, _n_visits[:10]: {}'.format(root.parent_ind_action_taken, [x for x in root._priors[:10]],[x for x in root._n_visits[:10]]))
+            
+            word_id, probs, acts,root = self.get_action(translation,root)   
+            
             # store the data: all we need to store is output since have src in main process
-            output_states.append(self.translation.output[:self.translation.len_output].tolist())
+            curTrans = [x for x in translation.output[:translation.len_output]]
+            output_states.append(curTrans)
             mcts_probs.append(probs.tolist())
             
-            actions.append(acts.tolist())
+            act_list = [x for x in acts]
+            actions.append(act_list)
             # choose a word (perform a move)
             #print('from translate sentence')
-            self.translation.do_move(word_id)
-            end, bleu = self.translation.translation_end()
-            print('time for word: ',time.time()-trans_start_time)
-            print('CURRENT TRANSLATION Rank: {}: {}'.format(self.rankInGroup,self.translation.output[:self.translation.len_output]))
+            translation.do_move(word_id)
+            
+            
+            end, bleu = translation.translation_end()
+            #print('time for word: ',time.time()-trans_start_time)
+            #print('CURRENT TRANSLATION Rank: {}: {}'.format(self.rankInGroup,curTrans))
             # print("sentence produced: {}".format(self.translation.vocab[self.translation.output].tolist()))
             # print("time: {:.3f}".format(time.time() - start_time))
 
-            if end or self.translation.len_output == self.max_len:
-                end, bleu = self.translation.translation_end(forceGetBleu=True)
+            if end or translation.len_output == self.max_len:
+                end, bleu = translation.translation_end(forceGetBleu=True)
             
                 # reset MCTS root node
                 # print("states collected: {}".format(states))
@@ -366,12 +526,15 @@ class MCTS(object):
                 # print("mcts_probs collected: {}".format(mcts_probs))
                 # print("mcts_probs len: {}".format(len(mcts_probs)))
                 print('prediction: ')
-                output2 = self.translation.output[:self.translation.len_output]
-                print([self.translation.vocab[output2[i]] for i in range(len(output2))])
-                predict_tokens = self.translation.vocab[self.translation.output[:self.translation.len_output]].tolist()
-                source_tokens = self.translation.vocab[self.translation.tgt].tolist()
-                prediction = self.translation.fix_sentence(predict_tokens[1:-1])
-                source = self.translation.fix_sentence(source_tokens[1:-1])
+                output2 = translation.output[:translation.len_output]
+                print([translation.vocab[output2[i]] for i in range(len(output2))])
+                
+                predict_tokens = [translation.vocab[x] for x in translation.output[:translation.len_output]]
+           
+                source_tokens = [translation.vocab[x] for x in translation.tgt]
+                
+                prediction = translation.fix_sentence(predict_tokens[1:-1])
+                source = translation.fix_sentence(source_tokens[1:-1])
                 print("source: {}".format(source))
                 print("translation: {}".format(prediction))
                 print("bleu: {:.3f}".format(bleu))
