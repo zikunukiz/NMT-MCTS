@@ -1,2 +1,3 @@
 lsof  -t -i tcp:29500 | xargs kill
+python setup.py build_ext --inplace
 python runMultiProcessWithQueue.py

@@ -9,31 +9,42 @@ import sacrebleu
 import time
 import nltk
 import globalsFile
+cimport numpy as np
+#from cpython cimport array
+#import array
 
+DTYPE = np.int
+ctypedef np.int_t INT_t
 
 #holds current state of our MCTS translation
-class Translation(object):
-    def __init__(self, tgt, vocab, **kwargs,):
+class Translation:
+    
+    def __init__(self, np.ndarray[INT_t] tgt, vocab):
         
-        self.vocab = np.array(vocab) #vocab is just a list not a dict
+        self.vocab = vocab
         self.tgt = tgt  # list of indices
-        self.output = torch.tensor([2]) # index in the vocab
+        self.output = np.zeros(70) #eventually can reduce for memory consumption
+        self.output[0] = 2
         self.last_word_id = globalsFile.BOS_WORD_ID
-
+        self.len_output = 1
+        
     def word_index_to_str(self, word_id):
         return self.vocab[word_id]
 
-    def do_move(self, word_id):  # can change name to choose_word
+    def do_move(self, INT_t word_id):  # can change name to choose_word
         # word_id is the index in the vocab
         self.last_word_id = word_id
-        self.output = torch.cat((self.output, torch.tensor([word_id])),0)
+        self.output[self.len_output] = word_id
+        #self.output = torch.cat((self.output, torch.tensor([word_id])),0)
+        self.len_output += 1
         
     def translation_end(self,forceGetBleu=False):
         """Check whether the translation is ended or not"""
         if self.last_word_id == globalsFile.EOS_WORD_ID or forceGetBleu:
         
             # revert tokenization back to strings
-            predict_tokens = self.vocab[self.output].tolist()
+            output_slice = np.array(self.output[:self.len_output])
+            predict_tokens = self.vocab[output_slice].tolist()
             ref_tokens = self.vocab[self.tgt].tolist()
 
             #now assuming first token of each is BOS and last is EOS

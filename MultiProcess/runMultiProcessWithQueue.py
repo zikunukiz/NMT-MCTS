@@ -9,6 +9,8 @@ Note: The main process doesn't have to wait for the send to be
 received. 
 '''
 
+import pyximport
+pyximport.install()
 
 import torch.distributed as dist
 from torch.multiprocessing import Process
@@ -18,7 +20,7 @@ import os
 import globalsFile
 from load_data import createIterators
 from policy_net import *
-from mcts_translator import *
+from mcts_translator import MCTS
 import time
 import json
 from dataBuffer import DataBuffer
@@ -141,7 +143,7 @@ def init_processes(rank,numProcesses,src_tensor,trg_tensor,modelToPass,main_para
 	#create the processes here then have our workers call one function
 	#and our main process (rank=0) call another
 	os.environ['MASTER_ADDR'] = '127.0.0.1'
-	os.environ['MASTER_PORT'] = '29500'
+	os.environ['MASTER_PORT'] = '29501'
 	print('rank: {}, numProcesses: {}'.format(rank,numProcesses))
 	dist.init_process_group('gloo', rank=rank, world_size=numProcesses)
 	#groupMCTS = dist.new_group([i for i in range(numProcesses)])
@@ -155,7 +157,7 @@ def init_processes(rank,numProcesses,src_tensor,trg_tensor,modelToPass,main_para
 
 
 
-if __name__ == '__main__':
+if __name__=='__main__':
 	
 	torch.multiprocessing.set_start_method('spawn')
 	#now create data_set iterators

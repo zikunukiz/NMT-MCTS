@@ -22,7 +22,68 @@ import array
 #now TreeNode just has parent and dict to children but also 
 #has several fields which now correspond to the edges leaving this node
 #and can store as arrays which will speed up playouts
+'''
+class TreeNode:
+    def __init__(self,parent,parent_ind_action_taken):
+        self._parent = parent
+        self.parent_ind_action_taken = parent_ind_action_taken #is index of action in parent action vector taken from parent to get here
+        self._children = {} #dictionary action->TreeNode
+        self._n_visits = None #number of visits to each of it's branches
+        self._actions = None #array of actions that the edges correspond to
+        self._priors = None #prior probs that the edges correspond to 
+        self._Q = None #Q values of edges
+        self._V = None #is value computed for this state
 
+    def expand(self,top_actions,top_probs):
+        #Expand tree by creating new children.
+        #action_priors: a list of tuples of actions and their prior probability
+        #    according to the policy function.
+          
+        assert(len(self._children)==0)
+        actions_copy = top_actions.clone().detach()
+        top_probs_cpy = top_probs.clone().detach()
+        for ind,a in enumerate(actions_copy):
+            self._children[a.item()] = TreeNode(self,ind)
+        
+        self._priors = top_probs_cpy
+        self._actions = actions_copy
+        self._n_visits = torch.zeros(len(actions_copy))
+        self._Q = torch.zeros(len(actions_copy))
+        
+    def select(self, c_puct):
+        
+
+        #Select action among children that gives maximum action value Q
+        #plus bonus u(P).
+        #Return: A tuple of (action, next_node)
+        
+        parent_num_visits = None
+        if self._parent is None:
+            parent_num_visits = (1 + self._n_visits) 
+        else:
+            parent_num_visits = self._parent._n_visits[self.parent_ind_action_taken]
+        
+        u = (c_puct*self._priors*np.sqrt(parent_num_visits) / (1 + self._n_visits))
+        val,indice = torch.max(u+self._Q, 0)
+        best_action = self._actions[indice.item()].item()
+        return (best_action,self._children[best_action])    
+    
+    def backup(self,leaf_value):
+        node = self
+        while(node._parent):
+            act_ind = node.parent_ind_action_taken
+            node = node._parent
+            node._n_visits[act_ind] += 1
+            node._Q[act_ind] += (leaf_value - node._Q[act_ind]) / node._n_visits[act_ind]
+
+
+    def is_leaf(self):
+        return len(self._children)==0 
+
+    def is_root(self):
+        return self._parent is None
+
+'''
 INT = np.int
 DOUBLE = np.double
 
@@ -55,7 +116,7 @@ cdef class TreeNode:
         self.isleaf = 1
         self.sum_visits = 1
         
-    def expand(self,np.ndarray[INT_t, ndim=1] top_actions,np.ndarray[DOUBLE_t, ndim=1] top_probs):
+    def expand(self,np.ndarray[DOUBLE_t, ndim=1] top_actions,np.ndarray[DOUBLE_t, ndim=1] top_probs):
         """Expand tree by creating new children.
         action_priors: a list of tuples of actions and their prior probability
             according to the policy function.
@@ -69,7 +130,7 @@ cdef class TreeNode:
         top_probs_cpy = np.copy(top_probs) #.clone().detach()
         
         #we have each each element in a corresponding to Child at same position in _children
-        self._children = np.empty(shape=(len_actions)).astype(dtype=TreeNode)
+        self._children = np.array(shape=(len_actions),dtype=TreeNode)
         for ind in range(len_actions):
             self._children[ind] = TreeNode(self,ind)
                
@@ -107,7 +168,7 @@ cdef class TreeNode:
         node = self
         node.sum_visits += 1
         while(node._parent):
-            #w:
+            
             act_ind = node.parent_ind_action_taken
             node = node._parent
             node.sum_visits += 1
@@ -153,7 +214,6 @@ class MCTS(object):
         State is modified in-place, so a copy must be provided.
         """
         cdef DOUBLE_t [:]  u
-        cdef DOUBLE_t [:] v
         cdef int indice_best_action
         cdef int best_action
         cdef TreeNode node
@@ -164,21 +224,10 @@ class MCTS(object):
             if node.isleaf or state.last_word_id == globalsFile.EOS_WORD_ID:
                 break
             
-
-        
-            u = np.multiply(self._c_puct,node._priors)
-            u = np.multiply(u,(node.sum_visits**0.5))
-            u = np.divide(u, np.add(node._n_visits,1.))
-
-            #u = (c_puct*self._priors*np.sqrt(self.sum_visits) / (1 + self._n_visits))
-            v = np.add(u,node._Q)
-            indice_best_action = np.argmax(v)
-
-            
             #number of times to the parent is just sum of children visits + 1 for when parent was expanded
             #self.sum_visits is parent number visits
-            #u = (self._c_puct*node._priors*(node.sum_visits**0.5) / (1 + node._n_visits))
-            #indice_best_action = np.argmax(u+node._Q)
+            u = (self._c_puct*node._priors*(node.sum_visits**0.5) / (1 + node._n_visits))
+            indice_best_action = np.argmax(u+node._Q)
             best_action = node._actions[indice_best_action]
             node = node._children[indice_best_action]
             
@@ -204,7 +253,7 @@ class MCTS(object):
                 #last element of padded output will be rank of this process
                 #and second last element is length of the output without padding
                 padded_output = torch.ones(self.max_len+2)*globalsFile.BLANK_WORD_ID
-                padded_output[:state.len_output]= torch.tensor(state.output[:state.len_output])
+                padded_output[:state.len_output]= torch.tensor(state.output)
                 padded_output[-2] = state.len_output
                 padded_output[-1] = self.rankInGroup
                 #print('rank: {}, Sending to queue: {}'.format(self.rankInGroup,padded_output[:15]))
@@ -260,17 +309,15 @@ class MCTS(object):
         #_n_playout is number of simulations per action chosen
         cdef int last_word_cpy
         cdef DOUBLE_t [:] copy_output
-        cdef int copy_len_output
         
         for n in range(self._n_playout):
             # print("simulation - {}".format(n))
             copy_last_word = self.translation.last_word_id #copy.deepcopy(self.translation.last_word_id)
             copy_output = np.copy(self.translation.output)
-            copy_len_output = self.translation.len_output
             self._playout(self.translation)
             self.translation.last_word_id = copy_last_word
             self.translation.output = copy_output
-            self.translation.len_output = copy_len_output
+        
         '''
         if time.time() - self.time_last_scatter > globalsFile.MAX_TIME_BETWEEN_SCATTERS:
             #do a fake gather and scatter
