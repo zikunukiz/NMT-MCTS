@@ -1,6 +1,6 @@
 
 import torch
-import settings
+import globalsFile
 import torch.nn.functional as F
 import numpy as np
 import sacrebleu
@@ -105,8 +105,8 @@ def getPredAndTargSentences(trg_tensor,pred_tensor,TGT):
   preds = []
   targs = []
   for col in range(trg_tensor.shape[1]): #each column contains sentence
-    true_sentence = [TGT.vocab.itos[i] for i in trg_tensor[:,col] if TGT.vocab.itos[i] != settings.BLANK_WORD][1:-1]
-    pred_sentence = [TGT.vocab.itos[i] for i in pred_tensor[:,col] if TGT.vocab.itos[i] != settings.BLANK_WORD]
+    true_sentence = [TGT.vocab.itos[i] for i in trg_tensor[:,col] if TGT.vocab.itos[i] != globalsFile.BLANK_WORD][1:-1]
+    pred_sentence = [TGT.vocab.itos[i] for i in pred_tensor[:,col] if TGT.vocab.itos[i] != globalsFile.BLANK_WORD]
     #print('Before: ')
     #print(true_sentence)
     #print(pred_sentence)
@@ -165,7 +165,7 @@ def greedy_search(src_tensor,trg_tensor,num_decode_steps,src_key_padding_mask,SR
     #now just go greedy and choose the highest for now
     #get indices along dimension 1 which have highest value (highest probability word)
     vals, indices = torch.max(word_rankings, 1) 
-    vals2,indices2 = torch.sort(word_rankings,dim=1,descending=True) 
+    #vals2,indices2 = torch.sort(word_rankings,dim=1,descending=True) 
     
     dec_input = torch.cat([dec_input,indices.view(1,-1)],dim=0)
   
@@ -259,7 +259,7 @@ class LossHistory:
         self.val_losses.append(np.mean(self.val_losses_this_epoch))
       else:
         self.train_losses.append(np.sum(self.train_losses_this_epoch)/self.train_num_toks_this_epoch)
-        self.val_losses.append(np.sum(self.val_losses_this_epoch)/self.val_num_toks_this_epoch)
+        self.val_losses.append(np.mean(self.val_losses_this_epoch)) #np.sum(self.val_losses_this_epoch)/self.val_num_toks_this_epoch)
       self.val_losses_this_epoch = [] #every 500 batches we will print our results in that last 500
       self.train_losses_this_epoch = []
       self.num_batches_processed = 0

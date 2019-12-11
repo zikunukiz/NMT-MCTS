@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
-"""
-@author: 
-"""
+
+#creates the iterators over our dataset
 
 from torchtext.data import Field
 from torchtext.data import TabularDataset

@@ -37,22 +37,25 @@ class DataBuffer:
 
     def next(self):
         #draw batch of size batch_size
-        inds = np.arange(self.num_iters,min(self.num_iters+self.batch_size,self.len()))
+        inds = self.examples_order[np.arange(self.num_iters,min(self.num_iters+self.batch_size,self.len()))]
         src_list = [self.src_tensors[i] for i in inds]
         max_src_len = max([len(x) for x in src_list])
+        #print('inds: ',inds)
 
         #now pad
         src_mat = torch.ones((max_src_len,len(inds)))*globalsFile.BLANK_WORD_ID
-        for col,ind in enumerate(inds):
-            src_mat[:len(src_list[ind]),col] = src_list[ind]
+        #print('srcmat shape: ',src_mat.shape)
+        for col in range(len(inds)):
+            #print('col: {}, ind: {}, len vect: {}'.format(col,ind,len(src_list[ind])))
+            src_mat[:len(src_list[col]),col] = src_list[col]
 
         dec_list = [self.dec_tensors[i] for i in inds]
         max_dec_len = max([len(x) for x in dec_list])
 
         #now pad
         dec_mat = torch.ones((max_dec_len,len(inds)))*globalsFile.BLANK_WORD_ID
-        for col,ind in enumerate(inds):
-            dec_mat[:len(dec_list[ind]),col] = dec_list[ind]
+        for col in range(len(inds)):
+            dec_mat[:len(dec_list[col]),col] = dec_list[col]
 
         bleus = torch.tensor([self.bleus[i] for i in inds])
 

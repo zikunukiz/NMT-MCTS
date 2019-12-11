@@ -42,6 +42,7 @@ cdef class TreeNode:
     cdef DOUBLE_t _V
     cdef INT_t isleaf
     cdef DOUBLE_t sum_visits #total number of visits to this node (used in select function)
+    #cdef DOUBLE_t [:] _n_visits_nonzero #this is number of backups of non zero values 
     
     def __init__(self,object parent,INT_t parent_ind_action_taken):
         self._parent = parent
@@ -76,6 +77,7 @@ cdef class TreeNode:
             self._children[ind] = TreeNode(self,ind)
          
         self._n_visits = np.zeros(len_actions)
+        #self._n_visits_nonzero = np.zeros(len_actions)
         self._Q = np.zeros(len_actions)
         
         
@@ -307,6 +309,7 @@ class MCTS(object):
             copy_len_output = translation.len_output
             
             #INSERTING CODE FOR PLAYOUT TO INCREASE SPEED
+            
             node = root
             while(1):
                 if node.isleaf or translation.last_word_id == EOS_ID:
@@ -332,10 +335,17 @@ class MCTS(object):
                 # Check for end of translation 
                 end = (translation.last_word_id == EOS_ID)
                 
-                if (not end or not is_training) and not ((end or translation.len_output==max_len)and is_training):
+                if is_training and (end or translation.len_output==max_len):
+                    end, bleu = translation.translation_end() #only need to fully run this function here.
+                    #print('USING BLEU')
+                    leaf_value = bleu
+                
+                else:
 
                     #last element of padded output will be rank of this process
                     #and second last element is length of the output without padding
+                    
+                    
                     padded_output = torch.ones(self.max_len+2)*globalsFile.BLANK_WORD_ID
                     padded_output[:translation.len_output]= torch.tensor(translation.output[:translation.len_output])
                     padded_output[-2] = translation.len_output
@@ -351,28 +361,26 @@ class MCTS(object):
                     #print('Top actions received',top_actions[:15])
                     top_probs = model_response[self.num_children:-1]
                     leaf_value = model_response[-1].item()
-
+                    
+                    
                     if not end and translation.len_output < self.max_len:
                         #assert(len(top_actions)==self.num_children)
                         #print('expanding at new state, rank: ',self.rankInGroup)
                         node.expand(top_actions.numpy(),top_probs.numpy())
 
-                else:
-                    end, bleu = translation.translation_end() #only need to fully run this function here.
-                    #print('USING BLEU')
-                    leaf_value = bleu
-
+                
             # Update value and visit count of nodes in this traversal
             node._V = leaf_value
             
-            #CODE FOR BACKUP
-            node.sum_visits += 1
-            while(node._parent):
-                act_ind = node.parent_ind_action_taken
-                node = node._parent
+            if leaf_value != 0:  #ADDED THIS SO THAT DONT BACKUP ZERO VALUES (ONLY BLEU SCORES)
+                #CODE FOR BACKUP
                 node.sum_visits += 1
-                node._n_visits[act_ind] += 1
-                node._Q[act_ind] += (leaf_value - node._Q[act_ind]) / node._n_visits[act_ind]
+                while(node._parent):
+                    act_ind = node.parent_ind_action_taken
+                    node = node._parent
+                    node.sum_visits += 1
+                    node._n_visits[act_ind] += 1
+                    node._Q[act_ind] += (leaf_value - node._Q[act_ind]) / node._n_visits[act_ind]
 
             
             #node.backup(leaf_value)
@@ -436,6 +444,11 @@ class MCTS(object):
   
             word_ind_in_acts = np.random.choice(self.possible_inds, p=probs)
             word_id = acts[word_ind_in_acts] #chosen word
+            
+            #if not root._n_visits is None:
+            #    print('rank: {}, chose word: {}, num visits: {}'.format(self.rankInGroup,word_id,root._n_visits[word_ind_in_acts]))
+        
+        
             #move root to this child
             #print('word_id chosen: ',word_id)
             
@@ -485,7 +498,7 @@ class MCTS(object):
         translation = self.translation #WE DONT USE Self.TRANSLATION ANYMORE
         root = self._root #dont use self._root anymore either
     
-        print('Translating sentence rank: ',self.rankInGroup)
+        #print('Translating sentence rank: ',self.rankInGroup)
         output_states, mcts_probs, actions, bleu = [], [],[], -1
         while True:
             # start_time = time.time()
@@ -497,7 +510,7 @@ class MCTS(object):
             #    print('TransSTART: rank: {}, output: {}, len: {}, lastWord: {}'.format(self.rankInGroup,[x for x in translation.output],translation.len_output,translation.last_word_id))
             #    print('Root before: ind_parent: {}, priors[:10]: {}, _n_visits[:10]: {}'.format(root.parent_ind_action_taken, [x for x in root._priors[:10]],[x for x in root._n_visits[:10]]))
             
-            word_id, probs, acts,root = self.get_action(translation,root)   
+            word_id, probs, acts, root = self.get_action(translation,root)   
             
             # store the data: all we need to store is output since have src in main process
             curTrans = [x for x in translation.output[:translation.len_output]]
@@ -510,6 +523,11 @@ class MCTS(object):
             #print('from translate sentence')
             translation.do_move(word_id)
             
+            #if not root._n_visits is None:
+            #    print('maxlen: ',self.max_len)
+            #    print('Got action: rank: {}, output: {}'.format(self.rankInGroup,[x for x in translation.output]))
+            #    print('Got action: rank: {}, priors: {}'.format(self.rankInGroup, [x for x in root._priors[:15]]))
+
             
             end, bleu = translation.translation_end()
             #print('time for word: ',time.time()-trans_start_time)
@@ -525,9 +543,9 @@ class MCTS(object):
                 # print("states len: {}".format(len(states)))
                 # print("mcts_probs collected: {}".format(mcts_probs))
                 # print("mcts_probs len: {}".format(len(mcts_probs)))
-                print('prediction: ')
+                #print('prediction: rank ')
                 output2 = translation.output[:translation.len_output]
-                print([translation.vocab[output2[i]] for i in range(len(output2))])
+                #print([translation.vocab[output2[i]] for i in range(len(output2))])
                 
                 predict_tokens = [translation.vocab[x] for x in translation.output[:translation.len_output]]
            
@@ -535,9 +553,9 @@ class MCTS(object):
                 
                 prediction = translation.fix_sentence(predict_tokens[1:-1])
                 source = translation.fix_sentence(source_tokens[1:-1])
-                print("source: {}".format(source))
-                print("translation: {}".format(prediction))
-                print("bleu: {:.3f}".format(bleu))
+                #print("source rank: {}: {}".format(self.rankInGroup,source))
+                #print("translation: {}".format(prediction))
+                #print("bleu: {:.3f}".format(bleu))
                 return bleu, output_states, mcts_probs,actions
 
 

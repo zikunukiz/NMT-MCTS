@@ -15,6 +15,7 @@ import numpy as np
 import math
 import operator
 import globalsFile
+import time
 
 def set_learning_rate(optimizer, lr):
     """Sets the learning rate to the given value"""
@@ -165,12 +166,12 @@ class PolicyValueNet():
             self.value_net.load_state_dict(value_params)
         
         #now set any field in these Models that isn't used to None
-        self.value_net.encoder_layer = None
-        self.value_net.encoder_norm = None
-        self.value_net.encoder = None
-        self.value_net.transformer = None
+        #self.value_net.encoder_layer = None
+        #self.value_net.encoder_norm = None
+        #self.value_net.encoder = None
+        #self.value_net.transformer = None
         
-        self.policy_net.transformer = None
+        #self.policy_net.transformer = None
             
         # optimizer
         self.policy_optimizer = optim.Adam(
@@ -188,6 +189,7 @@ class PolicyValueNet():
         processes: a tensor which process each column of src_tensor
                     refers to 
         """
+        
         processes = processes.to(self.device)
 
         encoder_output_sliced = None
@@ -226,25 +228,22 @@ class PolicyValueNet():
             act_probs = F.softmax(policy_output[sentence_lens-1, batch_indices, :], dim=1)
             #the shape is (batch_size, vocab size)
 
-            #commenting out shared decoder_embedding for now since were 
-            #trained with different ones which will throw off the algorithm initially
-            #if now use the same
-            #self.value_net.decoder_embedding.weight = nn.Parameter(
-            #   self.policy_net.decoder_embedding.weight.clone())
-            
+            '''
             value_output, encoder_output_sliced = self.value_net.forward(src_tensor, dec_input,
                                           src_key_padding_mask=src_key_padding_mask,
                                           tgt_mask=None, tgt_key_padding_mask=dec_key_padding_mask,
                                           memory_key_padding_mask=src_key_padding_mask,
                                           memory=encoder_output_sliced)
-
+            '''
             if self.encoder_output is None:
                 #make sure first run has all processes and in 
                 #right order
                 print('Set the encoder output')
                 self.encoder_output = encoder_output_sliced.clone()
 
-            value_output = torch.sigmoid(value_output[sentence_lens-1, batch_indices, 0])
+            #CHANGE THIS
+            value_output = torch.zeros(src_tensor.shape[1]) #torch.sigmoid(value_output[sentence_lens-1, batch_indices, 0])
+            
             return act_probs, value_output
 
     
@@ -263,8 +262,9 @@ class PolicyValueNet():
 
         #this will give first index where Blank
         sentence_lens = np.argmax((dec_input==globalsFile.BLANK_WORD_ID),0)
-        print('DECODER input: ',dec_input)
-        print('sentence_lens: ',sentence_lens)
+        sentence_lens[sentence_lens==0] = dec_input.shape[0] #a zero means there were no blanks
+        #print('DECODER input: ',dec_input)
+        #print('sentence_lens: ',sentence_lens)
         
         src_input = src_input.to(self.device)
         dec_input = dec_input.to(self.device)
@@ -272,9 +272,10 @@ class PolicyValueNet():
         actions = actions.to(self.device)                
         bleus = bleus.to(self.device)
 
-        processes = torch.tensor(np.arange(src_input.shape[1])).long()
+        processes = torch.tensor(np.arange(1,src_input.shape[1]+1)).long()
         # forward pass : args: src_tensor, dec_input, sentence_lens,req_grad
         
+        #print('dec_input shape: {}, mcts_probs shape: {}, actions shape: {}, bleus:{}'.format(dec_input.shape,mcts_probs.shape,actions.shape,bleus.shape))
         log_act_probs, value = self.forward(src_input, dec_input, processes=processes,sentence_lens=sentence_lens,req_grad=True)
         
         log_act_probs = torch.log(log_act_probs)
@@ -282,18 +283,21 @@ class PolicyValueNet():
         #log_act_probs has shape (batch_size,vocab_size)
         
         log_probs = torch.cat([log_act_probs[i,:][actions[:,i]].view(1,-1) for i in range(src_input.shape[1])],0)
-        #log_probs has shape (batch_size,num_children=200)
+        #log_probs has shape (batch_size,num_children of a node)
 
-        #MAKE SURE PROPER MATRIX MULTIPLICATION
-        term1 = (bleus-value)**2
+        #term1 = (bleus-value)**2
+        #print('term1: ',term1)
         
         log_probs = log_probs.unsqueeze(1)
         mcts_probs = mcts_probs.transpose(0,1).unsqueeze(2)
-        #print('shape log_probs: {}, mcts_probs: {}'.format(log_probs.shape,mcts_probs.shape))
         
-        term2 = - torch.bmm(log_probs, mcts_probs).squeeze()
+        term2 = torch.bmm(log_probs, mcts_probs).squeeze()
+        
         #print('shape term1: {}, term2: {}'.format(term1.shape,term2.shape))
-        loss = ((bleus-value)**2 - log_probs@mcts_probs).mean()
+        
+        #loss = ((bleus-value)**2 - term2).mean()
+        loss  = -term2.mean()
+        
         
         #for now L2 already incorporated in Adam (may not need any 
         #at all since using dropout)
@@ -302,7 +306,7 @@ class PolicyValueNet():
         # backward and optimize
         loss.backward()
         self.policy_optimizer.step()
-        self.value_optimizer.step()
+        self.value_optimizer.step() 
         
         return loss.item()
 
