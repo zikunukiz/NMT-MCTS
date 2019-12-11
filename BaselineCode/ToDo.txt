@@ -1,0 +1,62 @@
+
+
+Here we train the policy in a supervised setting
+
+MAIN THINGS TO DO:
+ 1. Do beam search decoding (if going to compare our MCTS model with baseline, this would make for more fair comparison)
+ 3. Try to find way to speed up policy gradient code
+ 4. What optimizer should we use for the policy gradient updating? 
+        a. Will try same adam with schedule for lr that used in supervised portion
+        b. Just use basic adam
+        c. Try SGD
+
+Full To Do List:
+ 1. Check why test set size so small 
+ 4. Should we contrain embedding vectros to be length 1 after gradient updates? 
+ 8. Should we be lowering learning rate in policy gradient section since we're just using 
+    estimates of the gradient?
+
+ 10. Can we improve the REINFORCE learning (change adam hyper param or get more samples at once to
+            lower the variance. (may want large batch size to estimate this properly))
+ 11. Once it's working, try cleaning up the code a bit to make it more modularized
+ 12. When we define our sum_log_probs vector and then assign to it's components, are gradients
+    through those components still getting calculated as we'd want? 
+ 13. Model is specific to dataset (since vocab dict changes from one to the next) so ideally to make it 
+    easy we should keep the dataset constant.
+ 14. Possibly also filter out any sentences with unknown words (or more than 1 unknown)
+ 15. Should we just lowercase everything which would drastically lower our vocabulary size
+      and likely not change embeddings much
+ 17. Possible decoding of policy in value net training to greedy/beam search
+ 18. In all our files, need more imports to allow these to actually work 
+ 19. Check if calling get_bleu_scores works (May have to move args to cpu first)
+ 20. Right now we're possibly doing the linear layer on every single vector output from decoder which isn't what 
+    we want when doing one output at a time since this is wasted computation. 
+ 
+URGENT: 
+ 1. Go over value network training and make sure it is what we want
+ 2. Start writing MCTS code to jointly train value and policy
+ 3. Write policy gradient code from image captioning to jointly train value and policy
+ 4. Debug debug debug debug
+
+
+CURRENT TESTS IM RUNNING: 
+ 1. trying using smaller model dimension and just using randomly initializing embeddings
+ 2. need to create learning rate schedular for the adam optimizer
+ 3. Need to make sure positional encoding is working properly. (In TF example)
+ 4. Make sure masking out blanks from our loss (I think we are)
+    Next step is to also make sure we don't include EOS_tokens (not critical for now)
+ 5. Make sure batch size big enough
+ 6. Try not using memory_mask
+
+ MAIN CHANGES (HAVENT IMPLEMENTED IN THESE FILES ONLY COLAB)
+ 1. Problem may be that I'm not adding positional encoding properly, 
+ 2. Now multiplying output of embedding by square root of embedding size
+ THIS WORKED !!!!!!!
+
+ More to try: 
+ 1. Put our spacy embeddings back in (Can just learn our own actually. Problem with these is that
+    our embedding dim has to be divisible by 8 so would have to learn a linear mapping to a different 
+    dimension anyways)
+
+Weird behavior: 
+1. Have a bunch of strings mapping to 0 (i think any that don't have high enough frequency)
